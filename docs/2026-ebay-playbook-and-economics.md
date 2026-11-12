@@ -1,6 +1,6 @@
-# 2026 eBay Playbooks, Compliance & Unit Economics
+# 2026 Fee Math, Shipping & Category Rules
 
-Vendere encodes the major **2026 eBay fee, shipping, condition, and category enforcement rules** directly into deterministic Python helpers (`tools/__init__.py` and `compliance.py`) paired with five auto-routed Hermes `SKILL.md` playbooks.
+Vendere builds eBay's **2026 fee, shipping, condition, and category rules** directly into Python helpers (`tools/__init__.py` and `compliance.py`) paired with five bundled `SKILL.md` guides.
 
 ---
 
@@ -34,7 +34,7 @@ Vendere registers one core skill plus four leaf-category playbooks via `ctx.regi
 
 | Skill Name | Target Categories | Key 2026 Rules & Pre-Publish Guards |
 | :--- | :--- | :--- |
-| **`ebay-seller-ops`** | All categories (Core) | Snap-and-Speak multimodal intake, anti-Magical-Listing fluff stripping, 80-char Cassini title structure, CRLF Draft CSV workflow, and strict two-step confirmation etiquette. |
+| **`ebay-seller-ops`** | All categories (Core) | Photo-and-notes listing intake, Magical Listing filler cleanup, 80-char search title structure, CRLF Draft CSV export, and two-step approval workflow. |
 | **`ebay-apparel-footwear`** | Clothing, Shoes & Accessories (`57988`, `11483`, `15709`, `11450`, `15724`, etc.) | **Aug 2026 Size Standardization** (blocks free-text `"Fits like Medium"` in `Size`), maps expanded pre-owned fashion Condition IDs (`2990` Pre-Owned Excellent, `3000` Pre-Owned Good, `3010` Pre-Owned Fair), requires flat-lay ruler measurements, and enforces the `$200–$500` Ship With eBay warning. |
 | **`ebay-motors-fitment`** | eBay Motors Parts & Accessories (`6028`, `6030`, `33559`–`33743`, etc.) | Replaces shuttered `myFitment`: front-loads exact OEM `MPN` in the first 40 title characters, formats Year/Make/Model (`YMM`) compatibility tables, warns against unverified Fitment Plus Auto guesses, and checks **mandatory 30-day Free Returns** on eligible new/new-other U.S. parts `> $10`. |
 | **`ebay-vintage-collectibles`** | Collectibles, Pottery/Glass, Vintage Electronics (`1`, `870`, `15230`, `293`, etc.) | **Catalog-Number Defense**: detects mold, base, or box numbers (e.g., Pyrex `#443`) placed inside `MPN` or `Model`, automatically moves them into `Pattern`, and sets `MPN = "Does Not Apply"` so eBay's catalog never overwrites vintage listings with wrong stock text. Uses `search_by_image` visual comps. |

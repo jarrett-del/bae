@@ -1,10 +1,10 @@
-# Architecture, Security & 2026 Endpoint Routing
+# Architecture, Security & API Routing
 
-Vendere (`hermes-ebay-ops`) is engineered around six non-negotiable architectural invariants so that AI-assisted eBay selling never compromises account credentials, calls retired eBay APIs, or mutates live inventory without explicit human consent.
+Vendere (`hermes-ebay-ops`) is built around six core rules so that AI-assisted eBay selling never exposes account credentials, calls retired eBay APIs, or changes live inventory without your approval.
 
 ---
 
-## 1. Six Constitutional Invariants
+## 1. Core Design Rules
 
 1. **Hermes Public Surface Only**:
    - Tools, skills, and settings register strictly through `register(ctx)` in `__init__.py`.

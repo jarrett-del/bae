@@ -1,6 +1,6 @@
-# CSV Migration, Seller Hub Drafts, Cron Blueprints & Partner Setup
+# CSV Migration, Seller Hub Drafts & Scheduled Checks
 
-This guide covers Vendere's displaced-seller onboarding (`inkFrog` / `myFitment`), Windows `CRLF` Seller Hub Draft export, zero-token (`--no-agent`) scheduled cron jobs, and 2026 eBay Developer / Partner milestones.
+This guide covers importing CSVs from discontinued listing tools (`inkFrog` and `myFitment`), exporting Windows `CRLF` Seller Hub Drafts, running zero-token (`--no-agent`) scheduled checks, and managing eBay developer API quotas.
 
 ---
 
@@ -33,9 +33,9 @@ With `inkFrog` and `myFitment` shuttered, resellers and auto-parts stores often 
 
 ---
 
-## 3. 90–180d Cassini Stale Diagnostics & Haul Velocity
+## 3. 90+ Day Stale-Listing Checks & Haul Break-Even Tracking
 
- Cassini's search decay penalizes fixed-price listings that stagnate past 90–180 days, yet blindly ending and relisting everything at once risks **Duplicate Listings Policy** flags or losing watchers unnecessarily.
+Fixed-price listings that sit unsold past 90–180 days tend to lose visibility in eBay search, yet ending and relisting everything at once risks **Duplicate Listings Policy** flags or losing watchers unnecessarily.
 
 `ebay_diagnose_stale` (and the Morning Ops strip) splits aged listings (`>=90 days`) into two safe tracks:
 - **`IN_PLACE_ASPECT_UPGRADE`**: Aged listings missing recommended leaf-category specifics (`Material`, `Pattern`, `Measurements`, `MPN`) are upgraded in place via `REVISE_LISTING` to unlock Cassini aspect filters while keeping existing item history and watchers.
