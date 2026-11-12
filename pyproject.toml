@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hermes-ebay-ops"
+version = "0.1.0"
+description = "Multimodal listing QA, unit economics, and store ops companion for eBay sellers"
+readme = "SPEC.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.7.0",
+    "defusedxml>=0.7.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[tool.setuptools]
+packages = ["hermes_ebay_ops", "hermes_ebay_ops.adapter", "hermes_ebay_ops.tools"]
+
+[tool.setuptools.package-dir]
+hermes_ebay_ops = "."
+"hermes_ebay_ops.adapter" = "adapter"
+"hermes_ebay_ops.tools" = "tools"
+
+[tool.pytest.ini_options]
+addopts = ["--import-mode=importlib"]
+testpaths = ["tests"]
+pythonpath = ["."]

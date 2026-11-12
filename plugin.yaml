@@ -1,0 +1,50 @@
+name: hermes-ebay-ops
+version: "0.1.0"
+description: Multimodal listing QA, unit economics, and store ops companion for eBay sellers
+python_dependencies:
+  - pydantic>=2.7.0
+  - defusedxml>=0.7.1
+optional_env:
+  - name: EBAY_PLUGIN_CLIENT_ID
+    description: eBay Developer Application OAuth Client ID
+  - name: EBAY_PLUGIN_CLIENT_SECRET
+    description: eBay Developer Application OAuth Client Secret
+oauth:
+  - id: ebay
+    authorize_url: https://auth.ebay.com/oauth2/authorize
+    token_url: https://api.ebay.com/identity/v1/oauth2/token
+    client_id_env: EBAY_PLUGIN_CLIENT_ID
+    client_secret_env: EBAY_PLUGIN_CLIENT_SECRET
+    hosts:
+      - api.ebay.com
+      - apiz.ebay.com
+      - apim.ebay.com
+    scopes:
+      - https://api.ebay.com/oauth/api_scope/sell.inventory
+      - https://api.ebay.com/oauth/api_scope/sell.account
+      - https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly
+      - https://api.ebay.com/oauth/api_scope/commerce.identity.readonly
+config_schema:
+  mode:
+    type: str
+    default: auto
+    description: Progressive tool visibility mode (auto, lite, or pro)
+  marketplace_id:
+    type: str
+    default: EBAY_US
+    description: Default eBay marketplace identifier
+  media_base_url:
+    type: str
+    default: https://apiz.ebay.com
+    description: Base URL for Commerce Media createImageFromFile uploads (https://apiz.ebay.com or https://apim.ebay.com)
+  action_token_ttl_seconds:
+    type: int
+    default: 900
+    description: Expiration window in seconds for two-step write action tokens
+provides_tools:
+  - ebay_stage_listing
+  - ebay_audit_active_listing
+  - ebay_check_comps
+  - ebay_confirm_action
+  - ebay_triage_offers
+  - ebay_lookup_bin
