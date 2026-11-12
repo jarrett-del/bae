@@ -1,4 +1,4 @@
-"""Sample-data tours for the Vendere (hermes-ebay-ops) Dashboard & Seller Studio Webapp.
+"""Sample-data tours for the bae (hermes-ebay-ops) Dashboard & Seller Desk Webapp.
 
 Seeds an isolated `tour.db` inside `plugin_data_dir("hermes-ebay-ops")` so sellers can
 explore both Lite C2C and Pro Warehouse Store workflows without touching their real

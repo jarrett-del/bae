@@ -1,6 +1,6 @@
 # Architecture, Security & API Routing
 
-Vendere (`hermes-ebay-ops`) is built around six core rules so that AI-assisted eBay selling never exposes account credentials, calls retired eBay APIs, or changes live inventory without your approval.
+`bae` (`hermes-ebay-ops`) is built around six core rules so that AI-assisted eBay selling never exposes account credentials, calls retired eBay APIs, or changes live inventory without your approval.
 
 ---
 
@@ -20,7 +20,7 @@ Vendere (`hermes-ebay-ops`) is built around six core rules so that AI-assisted e
    - Every live eBay write (`PUBLISH_LISTING`, `REVISE_LISTING`, `BOOTSTRAP_POLICIES`, `RESPOND_OFFER`, `BULK_PUBLISH`) stages a canonical JSON payload in `pending_actions` with a `SHA-256` digest and 15-minute `expires_at` window.
    - Only `ebay_confirm_action(action_token, user_approved=True)` (or clicking **Approve** in the Seller Desk) executes the upstream write after re-verifying both the TTL and SHA-256 digest inside an `IMMEDIATE` SQLite transaction.
 6. **Progressive Lite-to-Pro Enrichment**:
-   - Casual C2C sellers never enter SKUs, COGS, floor prices, or bin locations; Vendere mints hidden `HRM-YYYYMMDD-XXXX` SKUs automatically.
+   - Casual C2C sellers never enter SKUs, COGS, floor prices, or bin locations; `bae` mints hidden `HRM-YYYYMMDD-XXXX` SKUs automatically.
    - Supplying `cogs_cents`, `bin_code`, or `floor_price_cents` flips `seller_profile.pro_ops_enabled = 1`, dynamically unlocking `ebay_triage_offers`, `ebay_lookup_bin`, `ebay_import_migration_csv`, and `ebay_diagnose_stale` via `check_fn=is_pro_ops_enabled`.
 
 ---

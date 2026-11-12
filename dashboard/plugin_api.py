@@ -1,4 +1,4 @@
-"""FastAPI backend for the Vendere (hermes-ebay-ops) Dashboard tab and Seller Studio Webapp.
+"""FastAPI backend for the bae (hermes-ebay-ops) Dashboard tab and Seller Desk Webapp.
 
 Mounted automatically by Hermes at `/api/plugins/hermes-ebay-ops/`.
 Every handler is a synchronous `def` so FastAPI dispatches it in a worker thread off the event loop.
@@ -22,7 +22,7 @@ from fastapi import APIRouter, Body, HTTPException
 
 router = APIRouter()
 PLUGIN_DIR = Path(__file__).resolve().parent.parent
-PACKAGE_ALIAS = "vendere_dashboard_pkg"
+PACKAGE_ALIAS = "bae_dashboard_pkg"
 _DESKTOP_HEARTBEAT_AT: float = 0.0
 
 
@@ -680,7 +680,7 @@ def stage_draft(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     if len(notes) < 3:
         raise HTTPException(status_code=400, detail="Enter a brief description or condition/measurement note.")
 
-    media_url = str(body.get("media_url") or "").strip() or "https://i.ebayimg.com/images/g/vendere-staged-draft/s-l1600.jpg"
+    media_url = str(body.get("media_url") or "").strip() or "https://i.ebayimg.com/images/g/bae-staged-draft/s-l1600.jpg"
     params: dict[str, Any] = {
         "media_paths": [media_url],
         "seller_notes": notes,
@@ -910,7 +910,7 @@ def export_draft_csv(body: dict[str, Any] = Body(default_factory=dict)) -> dict[
         res = json.loads(raw)
         if not res.get("ok"):
             raise HTTPException(status_code=400, detail=res.get("message") or "Could not export CRLF Draft CSV")
-        res["filename"] = "vendere-seller-hub-drafts.csv"
+        res["filename"] = "bae-seller-hub-drafts.csv"
         return res
     finally:
         if tour:

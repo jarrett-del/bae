@@ -287,7 +287,7 @@ def parse_migration_csv(
                 "cogs_cents": cogs_cents,
                 "bin_code": bin_code,
                 "aspects": aspects,
-                "media_urls": media_urls or ["https://i.ebayimg.com/images/g/vendere-migrated/s-l1600.jpg"],
+                "media_urls": media_urls or ["https://i.ebayimg.com/images/g/bae-migrated/s-l1600.jpg"],
                 "fitment_rows": [],
             }
             grouped_by_key[safe_sku] = entry

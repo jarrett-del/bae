@@ -17,7 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 def _build_client() -> TestClient:
     api_path = REPO_ROOT / "dashboard" / "plugin_api.py"
-    spec = importlib.util.spec_from_file_location("test_vendere_plugin_api", api_path)
+    spec = importlib.util.spec_from_file_location("test_bae_plugin_api", api_path)
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)

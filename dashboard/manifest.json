@@ -1,10 +1,10 @@
 {
   "name": "hermes-ebay-ops",
-  "label": "Vendere",
-  "description": "eBay commerce desk: two-step listing approvals, anti-INAD QA, margin ledger, offer triage, and bin pick-lists.",
+  "label": "bae",
+  "description": "your eBay sidekick: two-step listing approvals, listing QA, net-profit & shipping math, Best Offer triage, and bin pick-lists.",
   "icon": "ShoppingBag",
   "version": "0.1.0",
-  "tab": { "path": "/vendere", "position": "after:sessions" },
+  "tab": { "path": "/bae", "position": "after:sessions" },
   "entry": "dist/index.js",
   "css": "dist/style.css",
   "api": "plugin_api.py"

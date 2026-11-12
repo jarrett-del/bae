@@ -68,7 +68,7 @@
     var url = URL.createObjectURL(blob);
     var a = document.createElement("a");
     a.href = url;
-    a.download = filename || "vendere-seller-hub-drafts.csv";
+    a.download = filename || "bae-seller-hub-drafts.csv";
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -112,9 +112,9 @@
         h(
           "div",
           { className: "vd-eyebrow" },
-          "Vendere",
+          h("span", { style: { textTransform: "none", fontWeight: 700, fontSize: "13px", letterSpacing: "-0.01em", color: "var(--vd-ink)" } }, "bae"),
           h("span", null, "//"),
-          pro ? "Pro Store Desk" : "Lite C2C Desk",
+          pro ? "your eBay sidekick · pro" : "your eBay sidekick · c2c",
           h("span", { className: "vd-live" }, h("i", { className: "vd-live-dot" }), props.live ? "Live" : "Offline")
         ),
         h(
@@ -756,7 +756,7 @@
     );
   }
 
-  function VendereDashboardPage() {
+  function BaeDashboardPage() {
     var _s = useState(null), state = _s[0], setState = _s[1];
     var _v = useState("inventory"), view = _v[0], setView = _v[1];
     var _q = useState(""), query = _q[0], setQuery = _q[1];
@@ -857,7 +857,7 @@
     }
 
     if (!state) {
-      return h("div", { className: "vd" }, h("div", { className: "vd-panel vd-empty" }, "Loading Vendere eBay Ops desk…"));
+      return h("div", { className: "vd" }, h("div", { className: "vd-panel vd-empty" }, "loading bae…"));
     }
 
     var t = state.totals;
@@ -961,5 +961,5 @@
     );
   }
 
-  window.__HERMES_PLUGINS__.register("hermes-ebay-ops", VendereDashboardPage);
+  window.__HERMES_PLUGINS__.register("hermes-ebay-ops", BaeDashboardPage);
 })();

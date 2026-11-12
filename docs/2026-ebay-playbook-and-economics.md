@@ -1,6 +1,6 @@
 # 2026 Fee Math, Shipping & Category Rules
 
-Vendere builds eBay's **2026 fee, shipping, condition, and category rules** directly into Python helpers (`tools/__init__.py` and `compliance.py`) paired with five bundled `SKILL.md` guides.
+`bae` builds eBay's **2026 fee, shipping, condition, and category rules** directly into Python helpers (`tools/__init__.py` and `compliance.py`) paired with five bundled `SKILL.md` guides.
 
 ---
 
@@ -21,7 +21,7 @@ $$\text{DIM Weight (lbs)} = \left\lceil \frac{L \times W \times H}{139} \right\r
 
 `compute_economics(...)` models the real deductions that erode reseller margins in 2026:
 - **Final Value Fee (FVF) Basis**: Computed on `list_price + shipping_est + (~7% estimated buyer sales tax)` plus the fixed per-order fee (`$0.30` for orders `<= $10.00`, `$0.40` above `$10.00`).
-- **Promoted Listings General (`PLG`) 30-Day Attribution (Jan 13, 2026)**: Since any buyer click on a `PLG` ad within 30 days triggers the ad fee even if another shopper or organic visit buys the item, Vendere previews `0% Organic`, `5% PLG`, and `8% PLG` net payouts side by side.
+- **Promoted Listings General (`PLG`) 30-Day Attribution (Jan 13, 2026)**: Since any buyer click on a `PLG` ad within 30 days triggers the ad fee even if another shopper or organic visit buys the item, `bae` previews `0% Organic`, `5% PLG`, and `8% PLG` net payouts side by side.
 - **`"Very High"` Service Metrics INAD (`+5%`) Preview**: Displays the exact `-5%` surcharge penalty so sellers see why accurate ruler measurements and flaw disclosures matter financially.
 - **\$200–\$500 Ship With eBay Fashion Protection Guard**: Warns fashion sellers in the `$200–$500` band (below the `$500+` Authenticity Guarantee threshold) to purchase labels through **Ship With eBay** so Seller Protections cover false return claims.
 - **`fulfillmentPolicyId` Lock**: Staging a listing binds the explicit `fulfillmentPolicyId` from `seller_profile` so eBay cannot silently override shipping methods at publish time.
@@ -30,7 +30,7 @@ $$\text{DIM Weight (lbs)} = \left\lceil \frac{L \times W \times H}{139} \right\r
 
 ## 2. Five Bundled `SKILL.md` Playbooks
 
-Vendere registers one core skill plus four leaf-category playbooks via `ctx.register_skill(...)`, backed by deterministic pre-publish guards in `compliance.py`:
+`bae` registers one core skill plus four leaf-category playbooks via `ctx.register_skill(...)`, backed by pre-publish checks in `compliance.py`:
 
 | Skill Name | Target Categories | Key 2026 Rules & Pre-Publish Guards |
 | :--- | :--- | :--- |

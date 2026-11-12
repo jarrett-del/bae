@@ -1,26 +1,26 @@
-# Vendere (`hermes-ebay-ops`)
+# bae
 
-**An eBay seller companion and operations desk for [Hermes Agent](https://github.com/NousResearch/hermes-agent).**
+**your eBay sidekick for [Hermes Agent](https://github.com/NousResearch/hermes-agent)** (`hermes-ebay-ops`)
 
-Vendere helps you draft accurate eBay listings from photos, check real comparable prices, calculate true take-home profit after fees and shipping, and manage daily store tasks — with both a full-screen **Seller Desk** and a compact **Side Pane** inside Hermes.
+`bae` helps you turn item photos and quick notes into accurate eBay listings, check real comparable prices, see your true take-home profit after fees and shipping, and stay on top of offers and packing — with both a full-screen **Seller Desk** (`/bae`) and a compact **Side Pane** right inside Hermes.
 
-**Nothing ever goes live on eBay without your approval.** Every new listing, edit, Best Offer reply, or bulk CSV import is staged locally first and requires your explicit confirmation before anything touches your live store.
+**Nothing ever goes live on eBay behind your back.** Every new listing, edit, Best Offer reply, or bulk CSV import is staged locally first and waits for your approval before touching your live store.
 
-![Vendere Seller Desk — Listings Catalog & Item Sheet](docs/images/listings-catalog.png)
+![bae Seller Desk — Listings Catalog & Item Sheet](docs/images/listings-catalog.png)
 
 ---
 
-## What Vendere Does
+## What bae Does
 
-- **Draft from Photos & Clean Up Generic AI Copy** — Drop item photos and quick measurement or flaw notes into chat to generate search-friendly 80-character titles, item specifics, and factual condition notes. You can also audit existing eBay "Magical Listings" to strip out vague AI filler (like *"stunning rare gem"*) that leads to buyer returns.
+- **Draft from Photos & Clean Up Generic AI Copy** — Drop photos and quick measurement or flaw notes into chat so `bae` can build search-friendly 80-character titles, item specifics, and factual condition notes. You can also audit existing eBay "Magical Listings" to strip out vague AI filler (like *"stunning rare gem"*) that leads to buyer returns.
 - **True Net Profit & Shipping Box Math** — Previews your real payout after Final Value Fees (including estimated buyer sales tax), Promoted Listings General (`PLG`) ad rates (`0% / 5% / 8%`), and return-rate surcharges. Includes **July 2026 USPS dimensional weight** (`L × W × H / 139` for boxes over 1 cubic foot) so bulky jackets, shoes, or kitchenware don't lose money at the post office.
-- **Built-In Category Rules** — Automatically checks eBay's category requirements before you publish:
+- **Built-In Category Rules** — Checks eBay's latest category rules before you publish:
   - **Apparel & Footwear**: Standardized size values, pre-owned fashion condition grades, flat-lay ruler measurements, and Ship With eBay protection reminders on \$200–\$500 items.
   - **eBay Motors Parts**: Front-loaded OEM part numbers (`MPN`), Year/Make/Model compatibility tables (replacing `myFitment`), and 30-day free return checks on new parts over \$10.
   - **Vintage & Collectibles**: Keeps mold or box numbers (such as Pyrex `#443`) in `Pattern` instead of `MPN` so eBay's catalog doesn't overwrite vintage listings with wrong stock descriptions.
   - **Cards, Coins & Media**: Grading/certification specifics and eBay Standard Envelope weight and value checks.
 - **Publish Directly or Export Seller Hub Draft CSVs** — Push approved listings directly through eBay's API, or export clean Windows `CRLF` CSVs that upload straight into **Seller Hub Drafts** (saved for 75 days) if you prefer adding mobile photos on your phone. Also imports legacy **`inkFrog`** and **`myFitment`** CSVs for bulk publishing (`<=25` SKUs per API batch).
-- **Scales from Closet Cleanouts to Full-Time Stores** — Casual sellers never have to deal with SKUs, cost of goods, or storage bins. As soon as you record a cost basis, minimum offer floor, or bin location on any item, Vendere automatically unlocks reseller workflows: Best Offer floor comparisons, bin-sorted packing lists, 90+ day stale-listing checks, and haul break-even tracking.
+- **Scales from Closet Cleanouts to Full-Time Stores** — Casual sellers never have to deal with SKUs, cost of goods, or storage bins. As soon as you record a cost basis, minimum offer floor, or bin location on any item, `bae` automatically turns on reseller workflows: Best Offer floor comparisons, bin-sorted packing lists, 90+ day stale-listing checks, and haul break-even tracking.
 - **Zero-Cost Scheduled Checks** — Optional background scripts check for stale listings, pending Best Offers, buyer questions, or unlisted haul inventory on a schedule without calling an LLM (`\$0` token cost), staying completely quiet whenever nothing needs your attention.
 
 ---
@@ -38,14 +38,14 @@ Add photos and measurements, tune your 80-character title, test pricing against 
 ![03 · Listing Bench](docs/images/listing-bench.png)
 
 ### 04 · Setup & Logs
-Check your eBay account connection and cached category quotas, test zero-cost scheduled checks on demand, view bundled category playbooks, and inspect the full activity log.
+Check your eBay account connection and cached category quotas, run zero-cost scheduled checks on demand, view bundled category playbooks, and inspect the full activity log.
 
 ![04 · Setup & Logs](docs/images/setup-and-logs.png)
 
 ### Compact Side Pane
 Keep a 350px summary open right next to Hermes chat to check active store totals, approve or cancel staged changes, or switch sample store tours without leaving your conversation.
 
-![Hermes Side Pane](docs/images/side-pane.png)
+![bae Side Pane](docs/images/side-pane.png)
 
 ---
 
@@ -54,20 +54,21 @@ Keep a 350px summary open right next to Hermes chat to check active store totals
 ### 1. Validate & Install in Hermes
 
 ```bash
-hermes plugins validate /path/to/vendere
+git clone https://github.com/jarrett-del/bae.git
+hermes plugins validate ./bae
 ```
 
 Copy or symlink the folder into `~/.hermes/plugins/hermes-ebay-ops` (or install via your Hermes plugins directory).
 
 ### 2. Connect Your eBay Account (or Try the Built-In Sample Tours)
 
-Vendere never reads `.env` files or raw tokens in Python. Set `EBAY_PLUGIN_CLIENT_ID` and `EBAY_PLUGIN_CLIENT_SECRET` in your shell environment, then sign in through Hermes's encrypted OAuth broker:
+`bae` never reads `.env` files or raw tokens in Python. Set `EBAY_PLUGIN_CLIENT_ID` and `EBAY_PLUGIN_CLIENT_SECRET` in your shell environment, then sign in through Hermes's encrypted OAuth broker:
 
 ```bash
 hermes auth add hermes-ebay-ops:ebay
 ```
 
-> **Want to try it before connecting eBay?** Open **Vendere** in Hermes and click **Casual C2C Tour** or **Pro Store Tour** at the top of the screen. Sample tours run in a separate `tour.db` file so your real store database stays untouched.
+> **Want to take it for a spin before connecting eBay?** Open **bae** (`/bae`) in Hermes and click **Casual C2C Tour** or **Pro Store Tour** at the top of the screen. Sample tours run in a separate `tour.db` file so your real store database stays untouched.
 
 ### 3. Run Tests Locally
 
@@ -101,7 +102,7 @@ node --input-type=module --check < dashboard/dist/index.js
 ## Project Layout
 
 ```text
-vendere/
+bae/
 ├── README.md
 ├── SPEC.md                          # Core architectural specification
 ├── plugin.yaml                      # Hermes v2 plugin manifest (OAuth, settings, 9 tools)
@@ -120,7 +121,7 @@ vendere/
 ├── scripts/                         # Zero-token (--no-agent) scheduled background scripts
 ├── skills/                          # 5 bundled SKILL.md guides (general ops + 4 category playbooks)
 ├── dashboard/                       # FastAPI backend routes + 350px Side Pane bundle
-├── desktop/                         # Full-screen 4-tab Seller Desk UI
+├── desktop/                         # Full-screen 4-tab Seller Desk UI (/bae)
 ├── docs/                            # Reference documentation & screenshots
 └── tests/                           # 29-test automated verification suite
 ```

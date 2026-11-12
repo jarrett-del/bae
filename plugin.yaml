@@ -1,10 +1,10 @@
 name: hermes-ebay-ops
 version: "0.1.0"
 manifest_version: 2
-description: Multimodal listing QA, unit economics, and store ops companion for eBay sellers — with a Hermes Dashboard tab and interactive Seller Studio Webapp
+description: bae — your eBay sidekick for Hermes Agent, with listing QA, 2026 fee & shipping math, and an interactive seller desk
 author: jarrett-del
 license: MIT
-homepage: https://github.com/jarrett-del/vendere
+homepage: https://github.com/jarrett-del/bae
 tags:
   - ebay
   - commerce

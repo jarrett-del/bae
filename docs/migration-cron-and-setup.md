@@ -6,7 +6,7 @@ This guide covers importing CSVs from discontinued listing tools (`inkFrog` and 
 
 ## 1. Dual Publishing Path: Live API vs. Seller Hub `CRLF` Draft CSV
 
-Not every seller wants an agent publishing directly to eBay on day one. Vendere supports two complementary paths from the exact same staged SQLite record:
+Not every seller wants an agent publishing directly to eBay on day one. `bae` supports two complementary paths from the exact same staged SQLite record:
 
 ### Path A — Live Two-Step API Publish (`ebay_confirm_action`)
 - Stages a `PUBLISH_LISTING` token with SHA-256 verification.
@@ -26,10 +26,10 @@ With `inkFrog` and `myFitment` shuttered, resellers and auto-parts stores often 
 1. **Auto-Detects Format**:
    - **`inkFrog` Exports**: Strips legacy `<div class="inkfrog-...">` HTML wrappers and `<style>` blocks down to clean mobile-friendly copy while preserving SKU (`CustomLabel`), price, condition, category, and gallery URLs.
    - **`myFitment` Exports**: Aggregates multi-row Year / Make / Model / Trim / Engine rows sharing the same `PartNumber` / `SKU` into a single `items` record with structured `compatibility` vehicles, front-loads OEM `MPN`, and runs Motors compliance checks.
-   - **Standard Seller Hub CSVs**: Imports active or draft spreadsheets directly into Vendere's local ledger.
+   - **Standard Seller Hub CSVs**: Imports active or draft spreadsheets directly into `bae`'s local ledger.
 2. **Stages a Single `BULK_PUBLISH` Token**:
    - Zero live eBay writes happen during CSV import.
-   - Vendere stages one cryptographic `BULK_PUBLISH` token in `01 · Morning Ops`. When approved, `LiveEbayAdapter.bulk_publish_listings(...)` chunks payloads into eBay's **`<=25 SKUs/call`** `bulk_create_or_replace_inventory_item` + `bulk_create_offer` batches.
+   - `bae` stages one cryptographic `BULK_PUBLISH` token in `01 · Morning Ops`. When approved, `LiveEbayAdapter.bulk_publish_listings(...)` chunks payloads into eBay's **`<=25 SKUs/call`** `bulk_create_or_replace_inventory_item` + `bulk_create_offer` batches.
 
 ---
 
@@ -47,7 +47,7 @@ Alongside stale triage, the **Haul & Death-Pile Velocity** bar tracks batch COGS
 
 ## 4. Zero-LLM-Token (`--no-agent`) Scheduled Cron Blueprints
 
-Running an LLM every 30 minutes just to check an empty inbox burns tokens and creates notification fatigue. Vendere bundles four pure-Python `--no-agent` scripts in `scripts/` (also testable interactively via **`Run Check`** in `04 · Setup & Logs`):
+Running an LLM every 30 minutes just to check an empty inbox burns tokens and creates notification fatigue. `bae` bundles four pure-Python `--no-agent` scripts in `scripts/` (also testable interactively via **`Run Check`** in `04 · Setup & Logs`):
 
 | Blueprint ID | Recommended Cron | Script | Behavior |
 | :--- | :--- | :--- | :--- |
@@ -62,7 +62,7 @@ Running an LLM every 30 minutes just to check an empty inbox burns tokens and cr
 
 ### Optional Read-Only `@ebay/npm-public-api-mcp` Pairing
 
-Vendere handles all authenticated seller execution and two-step write gating. Developers extending category or schema workflows can pair eBay's official read-only OpenAPI specification MCP server in `~/.hermes/config.yaml`:
+`bae` handles all authenticated seller execution and two-step write gating. Developers extending category or schema workflows can pair eBay's official read-only OpenAPI specification MCP server in `~/.hermes/config.yaml`:
 
 ```yaml
 mcp_servers:
@@ -73,6 +73,6 @@ mcp_servers:
 
 ### API Quota & 2026 eBay Partner Checklist (`04 · Setup & Logs`)
 
-- **`5,000 calls/day` Basic Access Quota**: Vendere caches `get_item_aspects_for_category` responses for **7 days** in `cache.db` and truncates Browse `q` strings to `<=100` characters so everyday store operations stay well inside default limits.
+- **`5,000 calls/day` Basic Access Quota**: `bae` caches `get_item_aspects_for_category` responses for **7 days** in `cache.db` and truncates Browse `q` strings to `<=100` characters so everyday store operations stay well inside default limits.
 - **Free Application Growth Check**: Stores scaling above `5,000` daily Taxonomy/Browse calls can request a free **Application Growth Check** in the eBay Developer Portal (`developer.ebay.com`) by demonstrating local aspect caching and human write-gating.
 - **December 31, 2026 Partner Program Cutoff**: Multi-tenant SaaS or commercial partner integrations seeking elevated eBay Partner Program tiers should submit applications ahead of the **December 31, 2026** program window tracked in `04 · Setup & Logs`.

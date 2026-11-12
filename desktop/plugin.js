@@ -1,5 +1,5 @@
 /**
- * Vendere (hermes-ebay-ops) — Editorial eBay Seller Desk inside Hermes.
+ * bae (hermes-ebay-ops) — your eBay sidekick inside Hermes.
  *
  * Design Language: Warm Editorial Paper + Architectural Grid (Vercel Geist / Teenage Engineering).
  *  - Warm stone drafting-paper canvas (#F5F4F0) with a subtle 24px dot-grid weave
@@ -18,8 +18,8 @@ import { createElement as h, useEffect, useRef, useState } from 'react'
 let rest = null
 let storage = null
 
-const STATE_KEY = ['vendere', 'state']
-const refresh = () => queryClient.invalidateQueries({ queryKey: ['vendere'] })
+const STATE_KEY = ['bae', 'state']
+const refresh = () => queryClient.invalidateQueries({ queryKey: ['bae'] })
 
 const $station = atom('catalog') // 'catalog' | 'ops' | 'bench' | 'setup'
 const $filter = atom({ q: '', bucket: 'all' }) // all | staged | active | qa | sold
@@ -30,7 +30,7 @@ const $talk = atom({ busy: false, open: false, turns: [] })
 const talkSession = { runtime: '', stored: '', primed: false, turn: 0 }
 
 const PRIME =
-  'This conversation is the Seller Desk assistant inside Vendere (eBay operations plugin). ' +
+  'This conversation is bae, your eBay sidekick inside Hermes (hermes-ebay-ops). ' +
   'Use the ebay_* tools for staging drafts, Magical Listing QA audits, active comps, Best Offer triage, ' +
   'and sorted bin pick-lists, and never confirm a write without explicit human approval.\n\n'
 
@@ -60,7 +60,7 @@ async function talkOpen() {
       /* session expired; open fresh */
     }
   }
-  const created = await host.request('session.create', { title: 'Vendere eBay Desk' })
+  const created = await host.request('session.create', { title: 'bae · eBay sidekick' })
   const runtime = (created && created.session_id) || ''
   if (!runtime) throw new Error('Hermes did not open a session')
   Object.assign(talkSession, { runtime, stored: created.stored_session_id || runtime, primed: false })
@@ -189,7 +189,7 @@ function calcLiveDimCheck(weightOz, lengthIn, widthIn, heightIn) {
   }
 }
 
-function downloadCsvBlob(csvText, filename = 'vendere-seller-hub-drafts.csv') {
+function downloadCsvBlob(csvText, filename = 'bae-seller-hub-drafts.csv') {
   if (typeof window === 'undefined' || typeof Blob === 'undefined') return
   const blob = new Blob([String(csvText || '')], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
@@ -2584,7 +2584,13 @@ function TalkDock({ pro }) {
           h(
             'div',
             { style: { display: 'flex', justifyContent: 'space-between', marginBottom: 6 } },
-            h('span', { className: 'vw-label-caps', style: { display: 'inline-flex', alignItems: 'center', gap: 7 } }, h(EbayRegMark), 'Vendere Seller Assistant'),
+            h(
+              'span',
+              { className: 'vw-label-caps', style: { display: 'inline-flex', alignItems: 'center', gap: 7 } },
+              h(EbayRegMark),
+              h('span', { style: { textTransform: 'none', fontWeight: 700, color: 'var(--vw-ink)' } }, 'bae'),
+              '· eBay sidekick'
+            ),
             h('button', { type: 'button', style: { border: 0, background: 'transparent', color: 'var(--vw-muted)', fontFamily: 'var(--vw-mono)', fontSize: 11, cursor: 'pointer' }, onClick: () => setTalk({ open: false }) }, 'Close')
           ),
           talk.turns.slice(-2).map((tr, i) =>
@@ -2614,11 +2620,11 @@ function TalkDock({ pro }) {
         h(EbayRegMark),
         h('input', {
           className: 'vw-dock-in',
-          placeholder: 'Ask Vendere to draft from photos, check eBay comps, audit a listing, or counter an offer…',
+          placeholder: 'ask bae to draft from photos, check eBay comps, clean up a listing, or counter an offer…',
           value: input,
           onChange: e => setInput(e.target.value)
         }),
-        h('button', { type: 'submit', className: 'vw-btn', 'data-vw-kind': 'primary', disabled: talk.busy }, talk.busy ? 'Working…' : 'Ask Vendere')
+        h('button', { type: 'submit', className: 'vw-btn', 'data-vw-kind': 'primary', disabled: talk.busy, style: { textTransform: 'none' } }, talk.busy ? 'working…' : 'ask bae')
       )
     )
   )
@@ -2662,7 +2668,7 @@ function WorkbenchPage() {
     const body = Array.isArray(skus) && skus.length ? { skus } : { status_filter: 'ALL' }
     rest('/export/draft-csv', { method: 'POST', body })
       .then(res => {
-        downloadCsvBlob(res.csv_text, res.filename || 'vendere-seller-hub-drafts.csv')
+        downloadCsvBlob(res.csv_text, res.filename || 'bae-seller-hub-drafts.csv')
         host.notify({ kind: 'success', message: `Exported ${res.row_count} row(s) with Windows CRLF (Action=Draft).` })
       })
       .catch(err => host.notifyError(err, 'Could not export CRLF Draft CSV'))
@@ -2736,7 +2742,7 @@ function WorkbenchPage() {
   }
 
   if (!state) {
-    return h('div', { className: 'vw-root vw-page' }, h(StyleTag), h('div', { className: 'vw-wrap' }, h('div', { className: 'vw-sheet-grid', style: { padding: 24 } }, 'Loading Vendere eBay Desk…')))
+    return h('div', { className: 'vw-root vw-page' }, h(StyleTag), h('div', { className: 'vw-wrap' }, h('div', { className: 'vw-sheet-grid', style: { padding: 24 } }, 'loading bae…')))
   }
 
   const t = state.totals
@@ -2838,7 +2844,8 @@ function WorkbenchPage() {
               'div',
               { className: 'vw-kicker' },
               h(EbayRegMark),
-              'Vendere · eBay Seller Desk',
+              h('span', { style: { textTransform: 'none', fontWeight: 700, fontSize: '13.5px', letterSpacing: '-0.02em', color: 'var(--vw-ink)' } }, 'bae'),
+              '· your eBay sidekick',
               h('span', { className: 'vw-tag', 'data-vw-tone': pro ? 'blue' : 'good' }, pro ? 'Pro Store · Inventory API' : 'Casual C2C · Simple Mode')
             ),
             h(
@@ -2931,7 +2938,7 @@ function WorkbenchPage() {
 function SidePane() {
   const query = useWorkbenchState()
   const state = query.data
-  if (!state) return h('div', { className: 'vw-root vw-pane' }, h(StyleTag), h('div', { className: 'vw-pane-inner' }, 'Loading Vendere…'))
+  if (!state) return h('div', { className: 'vw-root vw-pane' }, h(StyleTag), h('div', { className: 'vw-pane-inner' }, 'loading bae…'))
   const pending = state.pending_actions || []
   const picks = (state.pick_list || []).filter(p => !p.packed)
 
@@ -2946,12 +2953,18 @@ function SidePane() {
       h(
         'div',
         { className: 'vw-sheet-grid vw-cross', style: { padding: '15px 16px' } },
-        h('div', { className: 'vw-kicker' }, h(EbayRegMark), `Vendere · ${state.mode === 'pro' ? 'Pro Store' : 'Casual C2C'}`),
+        h(
+          'div',
+          { className: 'vw-kicker' },
+          h(EbayRegMark),
+          h('span', { style: { textTransform: 'none', fontWeight: 700, fontSize: '13px', letterSpacing: '-0.02em', color: 'var(--vw-ink)' } }, 'bae'),
+          `· ${state.mode === 'pro' ? 'Pro Store' : 'Casual C2C'}`
+        ),
         h('div', { style: { fontSize: 26, fontWeight: 700, marginTop: 5, letterSpacing: '-0.03em' } }, usdShort(state.totals.active_value_cents) + ' active'),
         h('div', { style: { fontFamily: 'var(--vw-mono)', fontSize: 11, color: 'var(--vw-sec)', marginTop: 4 } }, `${pending.length} approvals · ${state.offers.length} offers · ${picks.length} to ship`),
         h(
           'button',
-          { type: 'button', className: 'vw-btn', 'data-vw-kind': 'primary', style: { marginTop: 11, width: '100%', justifyContent: 'center' }, onClick: () => host.navigate('/vendere') },
+          { type: 'button', className: 'vw-btn', 'data-vw-kind': 'primary', style: { marginTop: 11, width: '100%', justifyContent: 'center' }, onClick: () => host.navigate('/bae') },
           'Open Seller Desk'
         )
       ),
@@ -3014,7 +3027,7 @@ function InChatItemCard({ attrs }) {
 
 export default {
   id: 'hermes-ebay-ops',
-  name: 'Vendere',
+  name: 'bae',
   register(ctx) {
     rest = ctx.rest
     storage = ctx.storage
@@ -3049,11 +3062,11 @@ export default {
     })
 
     ctx.registerMany([
-      { id: 'pane', area: 'panes', title: 'Vendere', data: { placement: 'right', width: '350px' }, render: () => h(SidePane) },
-      { id: 'page', area: 'routes', data: { path: '/vendere' }, render: () => h(WorkbenchPage) },
-      { id: 'nav', area: 'sidebar.nav', data: { path: '/vendere', label: 'Vendere', codicon: 'package' } },
-      { id: 'card', area: 'transcript.directives', data: { name: 'vendere-card', render: props => h(InChatItemCard, props) } },
-      { id: 'open', area: 'palette', data: { id: 'vendere.open', label: 'Vendere: open eBay Seller Desk', keywords: ['ebay', 'vendere', 'listings', 'inventory', 'seller'], run: () => host.navigate('/vendere') } }
+      { id: 'pane', area: 'panes', title: 'bae', data: { placement: 'right', width: '350px' }, render: () => h(SidePane) },
+      { id: 'page', area: 'routes', data: { path: '/bae' }, render: () => h(WorkbenchPage) },
+      { id: 'nav', area: 'sidebar.nav', data: { path: '/bae', label: 'bae', codicon: 'package' } },
+      { id: 'card', area: 'transcript.directives', data: { name: 'bae-card', render: props => h(InChatItemCard, props) } },
+      { id: 'open', area: 'palette', data: { id: 'bae.open', label: 'bae: open eBay seller desk', keywords: ['bae', 'ebay', 'listings', 'inventory', 'seller'], run: () => host.navigate('/bae') } }
     ])
   }
 }
