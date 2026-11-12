@@ -14,10 +14,13 @@ from hermes_cli.plugin_provider_requests import ProviderNotSignedIn
 from pydantic import ValidationError
 
 from ..adapter import EbayApiError, get_adapter
+from ..compliance import screen_listing_compliance
 from ..config import get_settings
+from ..csv_drafts import generate_seller_hub_draft_csv
 from ..db import (
     ActionGateError,
     append_item_event,
+    find_realized_sold_comps,
     get_db,
     get_item_by_ebay_item_id,
     get_item_by_sku,
@@ -34,10 +37,12 @@ from ..models import (
     ActionType,
     AuditActiveListingInput,
     BootstrapPoliciesPayload,
+    BulkPublishPayload,
     CheckCompsInput,
     ConditionEnum,
     ConfirmActionInput,
     EventActor,
+    ExportDraftCsvInput,
     ItemStatus,
     RespondOfferPayload,
     ReviseListingPayload,
@@ -47,6 +52,7 @@ from ..models import (
     mint_sku,
 )
 from . import (
+    compute_dimensional_shipping,
     compute_economics,
     detect_boilerplate_and_inad_risks,
     extract_structured_notes,
@@ -105,6 +111,19 @@ SCHEMA_STAGE_LISTING: dict[str, Any] = {
             "package_weight_oz": {
                 "type": "number",
                 "description": "Optional packed shipping weight in ounces for carrier tier sanity checks.",
+            },
+            "package_dims": {
+                "type": "object",
+                "properties": {
+                    "length_in": {"type": "number"},
+                    "width_in": {"type": "number"},
+                    "height_in": {"type": "number"},
+                },
+                "description": "Optional packed parcel dimensions in inches for July 2026 USPS 139 DIM-weight and >48 in oversize checks.",
+            },
+            "plg_ad_rate_bps": {
+                "type": "integer",
+                "description": "Optional Jan 2026 Promoted Listings General 30-day attribution ad rate in basis points (e.g. 500 for 5.0%).",
             },
         },
         "required": ["media_paths", "seller_notes"],
@@ -177,8 +196,49 @@ SCHEMA_CHECK_COMPS: dict[str, Any] = {
                 "type": "integer",
                 "description": "Optional cost of goods sold in integer cents to calculate net profit and margin %.",
             },
+            "plg_ad_rate_bps": {
+                "type": "integer",
+                "description": "Optional Promoted Listings General ad rate in basis points (e.g. 500 for 5.0%).",
+            },
+            "buyer_tax_rate_bps": {
+                "type": "integer",
+                "description": "Optional estimated buyer sales-tax basis in basis points (e.g. 700 for ~7% US sales tax included in FVF).",
+            },
+            "image_b64": {
+                "type": "string",
+                "description": "Optional base64-encoded photo for Browse API search_by_image visual comps on vintage/unbranded items.",
+            },
         },
         "required": ["query"],
+    },
+}
+
+SCHEMA_EXPORT_DRAFT_CSV: dict[str, Any] = {
+    "name": "ebay_export_draft_csv",
+    "description": (
+        "Dual-path Seller Hub Reports Draft CSV generator (Windows CRLF `\\r\\n`, `Action=Draft`, valid 75 days). "
+        "Solves the eBay REST Drafts limitation for casual sellers without Business Policies while sanitizing "
+        "description line breaks so Seller Hub never fails with `BAF.Error.5`."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "skus": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional list of local SKUs to export. Omit to export all STAGED drafts.",
+            },
+            "status_filter": {
+                "type": "string",
+                "enum": ["STAGED", "ALL"],
+                "description": "Export STAGED drafts only (default) or ALL local inventory.",
+            },
+            "location_label": {
+                "type": "string",
+                "description": "Item location string written into the `*Location` column (default 'United States').",
+            },
+        },
+        "required": [],
     },
 }
 
@@ -280,6 +340,26 @@ def handle_stage_listing(
             "INVENTORY_REST" if capabilities.policies_opted_in else "TRADING_XML_FALLBACK"
         )
 
+        compliance = screen_listing_compliance(
+            title=extracted.title,
+            description=extracted.clean_description,
+            category_id=category_id,
+            condition=condition,
+            list_price_cents=list_price_cents,
+            aspects=extracted.aspects,
+            media_urls_or_paths=remote_urls or local_media,
+            return_policy_id=capabilities.return_policy_id,
+            sku=sku,
+            conn=conn,
+        )
+        dim_check = compute_dimensional_shipping(
+            inp.package_weight_oz,
+            inp.package_dims,
+            list_price_cents=list_price_cents,
+            category_id=category_id,
+            fulfillment_policy_id=capabilities.fulfillment_policy_id,
+        )
+
         staged_payload = StagedListingPayload(
             sku=sku,
             title=extracted.title,
@@ -289,7 +369,8 @@ def handle_stage_listing(
             list_price_cents=list_price_cents,
             shipping_est_cents=shipping_est_cents,
             package_weight_oz=inp.package_weight_oz,
-            aspects=extracted.aspects,
+            package_dims=inp.package_dims,
+            aspects=compliance.sanitized_aspects,
             flaws_disclosure=extracted.flaws_disclosure,
             media_paths=local_media,
             media_urls=remote_urls,
@@ -318,16 +399,18 @@ def handle_stage_listing(
             shipping_est_cents=shipping_est_cents,
             estimated_fee_bps=int(profile["estimated_fee_bps"]),
             cogs_cents=inp.cogs_cents if pro_active else None,
+            plg_ad_rate_bps=inp.plg_ad_rate_bps,
         )
-        weight_note = shipping_weight_sanity_note(inp.package_weight_oz)
+        weight_note = dim_check.summary_note
 
         card_lines = [
             f"### Staged eBay Listing Preview (`{sku}`)",
             f"- **Title**: {staged_payload.title}",
-            f"- **Category ID**: `{category_id}` | **Condition**: `{condition.value}`",
+            f"- **Category ID**: `{category_id}` (`{compliance.playbook}`) | **Condition**: `{condition.value}` (`{condition.browse_condition_id(category_id)}`)",
             f"- **Publish Route**: `{route_mode}` ({'Business Policies active' if capabilities.policies_opted_in else 'Casual C2C inline shipping/returns fallback'})",
             f"- **List Price**: {format_usd(list_price_cents)} (+ {format_usd(shipping_est_cents)} est. buyer shipping)",
-            f"- **Estimated eBay Fees**: -{format_usd(econ.estimated_fees_cents)}",
+            f"- **Estimated eBay Fees**: -{format_usd(econ.estimated_fees_cents)}"
+            + (f" *(includes {format_usd(econ.plg_ad_fee_cents)} PLG {inp.plg_ad_rate_bps / 100:.1f}% ad fee)*" if econ.plg_ad_fee_cents else ""),
             f"- **Estimated Net Payout**: **{format_usd(econ.estimated_net_payout_cents)}**",
         ]
         if pro_active:
@@ -351,7 +434,9 @@ def handle_stage_listing(
             card_lines.append(f"- **Recommended Aspects to Add**: {', '.join(missing_recommended)}")
         if staged_payload.flaws_disclosure:
             card_lines.append(f"- **Disclosed Flaws**: {staged_payload.flaws_disclosure}")
-        card_lines.append(f"- **Shipping Weight Check**: {weight_note}")
+        card_lines.append(f"- **Shipping / 2026 139-DIM Check**: {weight_note}")
+        for warn in [*compliance.warnings, *dim_check.warnings]:
+            card_lines.append(f"- **2026 Compliance / Margin Guard**: {warn}")
 
         upsert_item(
             conn,
@@ -364,6 +449,7 @@ def handle_stage_listing(
             list_price_cents=list_price_cents,
             shipping_est_cents=shipping_est_cents,
             package_weight_oz=inp.package_weight_oz,
+            package_dims=inp.package_dims.model_dump(mode="json") if inp.package_dims else None,
             aspects=staged_payload.aspects,
             flaws_disclosure=staged_payload.flaws_disclosure,
             media_urls=remote_urls or local_media,
@@ -400,6 +486,7 @@ def handle_stage_listing(
                 "action_token": pending.action_token,
                 "list_price_cents": list_price_cents,
                 "route_mode": route_mode,
+                "playbook": compliance.playbook,
                 "session_id": session_id,
                 "platform": platform,
             },
@@ -411,13 +498,26 @@ def handle_stage_listing(
                 "tool": "ebay_stage_listing",
                 "mode": "pro" if pro_active else "lite",
                 "sku": sku,
+                "playbook": compliance.playbook,
                 "action_token": pending.action_token,
                 "expires_at": pending.expires_at,
                 "missing_required_aspects": missing_required,
                 "missing_recommended_aspects": missing_recommended,
+                "compliance_warnings": [*compliance.warnings, *dim_check.warnings],
+                "dimensional_shipping": {
+                    "cubic_inches": dim_check.cubic_inches,
+                    "actual_lbs": dim_check.actual_lbs,
+                    "dim_lbs_2026": dim_check.dim_lbs_2026,
+                    "billable_lbs": dim_check.billable_lbs,
+                    "dim_triggered": dim_check.dim_triggered,
+                    "oversize_triggered": dim_check.oversize_triggered,
+                    "recommended_box_code": dim_check.recommended_box_code,
+                },
                 "economics": {
                     "list_price_cents": econ.list_price_cents,
                     "estimated_fees_cents": econ.estimated_fees_cents,
+                    "plg_ad_fee_cents": econ.plg_ad_fee_cents,
+                    "very_high_inad_risk_cents": econ.very_high_inad_risk_cents,
                     "estimated_net_payout_cents": econ.estimated_net_payout_cents,
                     "cogs_cents": econ.cogs_cents,
                     "net_profit_cents": econ.net_profit_cents,
@@ -495,6 +595,22 @@ def handle_audit_active_listing(
             aspects=target.aspects,
             category_id=target.category_id,
         )
+        compliance = screen_listing_compliance(
+            title=target.title,
+            description=cleaned_desc,
+            category_id=target.category_id,
+            condition=target.condition,
+            list_price_cents=target.list_price_cents,
+            aspects=merged_aspects,
+            media_urls_or_paths=target.media_urls,
+        )
+        merged_aspects = {
+            k: ([x.strip() for x in v.split(",") if x.strip()] if isinstance(v, str) else list(v))
+            for k, v in compliance.sanitized_aspects.items()
+        }
+        for cw in compliance.warnings:
+            if cw not in inad_warnings:
+                inad_warnings.append(cw)
         if extra_notes:
             if extra_notes.measurements:
                 cleaned_desc = f"{cleaned_desc}\nMeasurements: {', '.join(extra_notes.measurements)}."
@@ -692,23 +808,34 @@ def handle_check_comps(
     try:
         profile = get_or_create_seller_profile(conn)
         fee_bps = int(profile["estimated_fee_bps"])
-        comps = adapter.search_comps(
-            inp.query,
-            inp.category_id,
-            inp.condition.value if inp.condition else None,
-        )
+        cond_val = inp.condition.value if inp.condition else None
+        if inp.image_b64:
+            comps = adapter.search_comps_by_image(inp.image_b64, inp.category_id, cond_val)
+        else:
+            comps = adapter.search_comps(inp.query, inp.category_id, cond_val)
+
+        realized_local = find_realized_sold_comps(conn, inp.query, inp.category_id, limit=5)
         econ_median = compute_economics(
             list_price_cents=max(1, comps.median_cents) if comps.sample_count > 0 else 1,
             shipping_est_cents=comps.typical_shipping_cents,
             estimated_fee_bps=fee_bps,
             cogs_cents=inp.cogs_cents,
+            plg_ad_rate_bps=inp.plg_ad_rate_bps,
+            buyer_tax_rate_bps=inp.buyer_tax_rate_bps,
         )
 
         md_lines = [
-            f"### Active eBay Comps — `{inp.query}` ({comps.sample_count} samples)",
+            f"### Active eBay Comps — `{inp.query}` ({comps.sample_count} samples"
+            + (" · Visual Image Search" if inp.image_b64 else "")
+            + ")",
             f"- **P25**: {format_usd(comps.p25_cents)} | **Median**: **{format_usd(comps.median_cents)}** | **P75**: {format_usd(comps.p75_cents)}",
             f"- **Typical Buyer Shipping**: {format_usd(comps.typical_shipping_cents)}",
         ]
+        if realized_local:
+            avg_sold = int(round(sum(int(r["list_price_cents"]) for r in realized_local) / len(realized_local)))
+            md_lines.append(
+                f"- **Realized Store Sold History**: {len(realized_local)} local sold match(es), avg **{format_usd(avg_sold)}**"
+            )
         if comps.sample_count > 0:
             md_lines.append(
                 f"- **Est. Net Seller Proceeds at Median**: **{format_usd(econ_median.estimated_net_payout_cents)}** "
@@ -725,14 +852,19 @@ def handle_check_comps(
                 "ok": True,
                 "tool": "ebay_check_comps",
                 "query": inp.query,
+                "search_mode": "image" if inp.image_b64 else "keyword",
                 "sample_count": comps.sample_count,
                 "p25_cents": comps.p25_cents,
                 "median_cents": comps.median_cents,
                 "p75_cents": comps.p75_cents,
                 "typical_shipping_cents": comps.typical_shipping_cents,
                 "median_net_proceeds_cents": econ_median.estimated_net_payout_cents if comps.sample_count > 0 else 0,
+                "plg_ad_fee_cents": econ_median.plg_ad_fee_cents if comps.sample_count > 0 else 0,
+                "very_high_inad_risk_cents": econ_median.very_high_inad_risk_cents if comps.sample_count > 0 else 0,
                 "median_net_profit_cents": econ_median.net_profit_cents if comps.sample_count > 0 else None,
                 "median_margin_pct": econ_median.margin_pct if comps.sample_count > 0 else None,
+                "realized_sold_count": len(realized_local),
+                "realized_sold_samples": realized_local,
                 "preview_card_md": "\n".join(md_lines),
             }
         )
@@ -966,6 +1098,74 @@ def handle_confirm_action(
                     }
                 )
 
+            if record.action_type == ActionType.BULK_PUBLISH:
+                bulk_payload = BulkPublishPayload.model_validate(record.payload)
+                ready_items: list[StagedListingPayload] = []
+                for p in bulk_payload.items:
+                    uploaded = list(p.media_urls)
+                    if p.media_paths:
+                        uploaded.extend(adapter.upload_media(p.media_paths))
+                    ready_items.append(p.model_copy(update={"media_urls": uploaded, "media_paths": []}))
+
+                receipts = adapter.bulk_publish_listings(ready_items)
+                mark_pending_action_status(conn, record.action_token, ActionStatus.EXECUTED)
+
+                receipt_by_sku = {r.sku: r for r in receipts}
+                for item_pub in ready_items:
+                    rcp = receipt_by_sku.get(item_pub.sku)
+                    if rcp is None:
+                        continue
+                    upsert_item(
+                        conn,
+                        sku=item_pub.sku,
+                        ebay_item_id=rcp.ebay_item_id,
+                        offer_id=rcp.offer_id,
+                        source_mode=SourceMode.AGENT_CAPTURE,
+                        status=ItemStatus.ACTIVE,
+                        title=item_pub.title,
+                        category_id=item_pub.category_id,
+                        condition_enum=item_pub.condition,
+                        list_price_cents=item_pub.list_price_cents,
+                        shipping_est_cents=item_pub.shipping_est_cents,
+                        package_weight_oz=item_pub.package_weight_oz,
+                        package_dims=item_pub.package_dims.model_dump(mode="json") if item_pub.package_dims else None,
+                        aspects=item_pub.aspects,
+                        flaws_disclosure=item_pub.flaws_disclosure,
+                        media_urls=item_pub.media_urls,
+                        cogs_cents=item_pub.cogs_cents,
+                        bin_code=item_pub.bin_code,
+                        floor_price_cents=item_pub.floor_price_cents,
+                        listed_at=rcp.timestamp_utc,
+                    )
+                    append_item_event(
+                        conn,
+                        sku=item_pub.sku,
+                        event_type="LISTING_PUBLISHED",
+                        actor=EventActor.USER,
+                        detail={
+                            "action_token": record.action_token,
+                            "ebay_item_id": rcp.ebay_item_id,
+                            "offer_id": rcp.offer_id,
+                            "route_used": rcp.route_used,
+                            "bulk_batch": True,
+                            "session_id": session_id,
+                        },
+                    )
+                return format_tool_response(
+                    {
+                        "ok": True,
+                        "tool": "ebay_confirm_action",
+                        "status": ActionStatus.EXECUTED.value,
+                        "action_type": record.action_type.value,
+                        "published_count": len(receipts),
+                        "receipts": [r.model_dump(mode="json") for r in receipts],
+                        "preview_card_md": (
+                            f"Bulk-published **{len(receipts)}** listings (`<=25 SKUs/call`) live on eBay "
+                            f"via `{receipts[0].route_used if receipts else 'INVENTORY_REST'}`."
+                        ),
+                    }
+                )
+
             mark_pending_action_status(conn, record.action_token, ActionStatus.FAILED)
             return format_tool_response(
                 {
@@ -984,5 +1184,68 @@ def handle_confirm_action(
                     "message": str(exc),
                 }
             )
+    finally:
+        conn.close()
+
+
+def handle_export_draft_csv(
+    params: dict[str, Any],
+    *,
+    session_id: str = "",
+    platform: str = "",
+    **kwargs: Any,
+) -> str:
+    """Export staged or selected inventory rows as a Windows CRLF Seller Hub Reports Draft CSV."""
+    try:
+        inp = ExportDraftCsvInput.model_validate(params or {})
+    except ValidationError as exc:
+        return format_tool_response({"ok": False, "error_code": "INVALID_INPUT", "message": str(exc)})
+
+    settings = get_settings()
+    conn = get_db(settings.plugin_name)
+    try:
+        if inp.skus:
+            placeholders = ",".join("?" for _ in inp.skus)
+            rows = [
+                dict(r)
+                for r in conn.execute(
+                    f"SELECT * FROM items WHERE sku IN ({placeholders}) ORDER BY updated_at DESC",
+                    tuple(inp.skus),
+                ).fetchall()
+            ]
+        elif inp.status_filter == "STAGED":
+            rows = [
+                dict(r)
+                for r in conn.execute(
+                    "SELECT * FROM items WHERE status = 'STAGED' ORDER BY updated_at DESC"
+                ).fetchall()
+            ]
+        else:
+            rows = [
+                dict(r)
+                for r in conn.execute("SELECT * FROM items ORDER BY updated_at DESC").fetchall()
+            ]
+
+        for row in rows:
+            row["aspects"] = row.get("aspects_json") or "{}"
+            row["media_urls"] = row.get("media_urls_json") or "[]"
+
+        csv_text = generate_seller_hub_draft_csv(rows, location_label=inp.location_label)
+        md_lines = [
+            f"### Seller Hub Reports Draft CSV Export (`{len(rows)}` draft row(s))",
+            "- **Format**: `FX_LISTING` (`Action=Draft`, valid 75 days in Seller Hub -> Listings -> Drafts)",
+            "- **Line Endings**: Strict Windows `CRLF` (`\\r\\n`) with sanitized single-line cells (`BAF.Error.5` safe)",
+            "- **Upload Path**: Seller Hub -> Reports -> Uploads -> Upload template",
+        ]
+        return format_tool_response(
+            {
+                "ok": True,
+                "tool": "ebay_export_draft_csv",
+                "row_count": len(rows),
+                "crlf_verified": "\r\n" in csv_text,
+                "csv_text": csv_text,
+                "preview_card_md": "\n".join(md_lines),
+            }
+        )
     finally:
         conn.close()

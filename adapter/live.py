@@ -20,6 +20,7 @@ from hermes_cli.plugin_provider_requests import (
     credentialed_provider_request,
 )
 
+from ..cache_store import get_cached_category_aspects, put_cached_category_aspects
 from ..config import PluginSettings, get_settings
 from ..models import (
     AccountCapabilities,
@@ -298,6 +299,12 @@ class LiveEbayAdapter:
     def get_category_aspects(
         self, category_id: str, marketplace_id: str = "EBAY_US"
     ) -> list[CategoryAspectSpec]:
+        cached = get_cached_category_aspects(
+            category_id, marketplace_id, plugin_name=self._settings.plugin_name
+        )
+        if cached is not None:
+            return cached
+
         tree_id = self._resolve_category_tree_id(marketplace_id)
         base = self._settings.api_base_url.rstrip("/")
 
@@ -341,22 +348,30 @@ class LiveEbayAdapter:
                     multi_value=str(constraint.get("itemToAspectCardinality", "SINGLE")).upper() == "MULTI",
                 )
             )
+        put_cached_category_aspects(
+            category_id, marketplace_id, specs, plugin_name=self._settings.plugin_name
+        )
         return specs
 
-    def search_comps(
-        self, query: str, category_id: str | None, condition: str | None
+    @staticmethod
+    def _truncate_browse_query(query: str, max_len: int = 100) -> str:
+        """Truncate Browse API `q` to <=100 characters on word boundaries per eBay Browse spec."""
+        cleaned = " ".join(query.split()).strip()
+        if len(cleaned) <= max_len:
+            return cleaned
+        cut = cleaned[:max_len]
+        if " " in cut:
+            cut = cut.rsplit(" ", 1)[0]
+        return cut.strip() or cleaned[:max_len]
+
+    @staticmethod
+    def _summarize_browse_items(
+        raw_items: list[dict[str, Any]],
+        *,
+        query: str,
+        category_id: str | None,
+        condition: str | None,
     ) -> CompSummary:
-        params: dict[str, str] = {"q": query, "limit": "25"}
-        if category_id:
-            params["category_ids"] = category_id
-        if condition:
-            cond_enum = normalize_condition(condition)
-            params["filter"] = f"conditionIds:{{{cond_enum.trading_condition_id}}}"
-
-        url = f"{self._settings.api_base_url.rstrip('/')}/buy/browse/v1/item_summary/search?{urlencode(params)}"
-        data = self._request("GET", url).json()
-        raw_items = data.get("itemSummaries") or []
-
         samples: list[CompSample] = []
         prices: list[int] = []
         shippings: list[int] = []
@@ -412,6 +427,48 @@ class LiveEbayAdapter:
             p75_cents=p75,
             typical_shipping_cents=typ_ship,
             samples=samples[:10],
+        )
+
+    def search_comps(
+        self, query: str, category_id: str | None, condition: str | None
+    ) -> CompSummary:
+        safe_q = self._truncate_browse_query(query, 100)
+        params: dict[str, str] = {"q": safe_q, "limit": "25"}
+        if category_id:
+            params["category_ids"] = category_id
+        if condition:
+            cond_enum = normalize_condition(condition)
+            params["filter"] = f"conditionIds:{{{cond_enum.browse_condition_id(category_id)}}}"
+
+        url = f"{self._settings.api_base_url.rstrip('/')}/buy/browse/v1/item_summary/search?{urlencode(params)}"
+        data = self._request("GET", url).json()
+        return self._summarize_browse_items(
+            data.get("itemSummaries") or [],
+            query=safe_q,
+            category_id=category_id,
+            condition=condition,
+        )
+
+    def search_comps_by_image(
+        self, image_b64: str, category_id: str | None = None, condition: str | None = None
+    ) -> CompSummary:
+        """Query POST /buy/browse/v1/item_summary/search_by_image for unbranded or vintage items."""
+        params: dict[str, str] = {"limit": "25"}
+        if category_id:
+            params["category_ids"] = category_id
+        if condition:
+            cond_enum = normalize_condition(condition)
+            params["filter"] = f"conditionIds:{{{cond_enum.browse_condition_id(category_id)}}}"
+        url = (
+            f"{self._settings.api_base_url.rstrip('/')}"
+            f"/buy/browse/v1/item_summary/search_by_image?{urlencode(params)}"
+        )
+        data = self._request("POST", url, json_payload={"image": image_b64}).json()
+        return self._summarize_browse_items(
+            data.get("itemSummaries") or [],
+            query="[image-search]",
+            category_id=category_id,
+            condition=condition,
         )
 
     def fetch_recent_active_listings(self, limit: int = 10) -> list[ActiveListingSnapshot]:
@@ -492,10 +549,18 @@ class LiveEbayAdapter:
                     "imageUrls": payload.media_urls,
                 },
             }
-            if payload.package_weight_oz is not None:
-                inv_body["packageWeightAndSize"] = {
-                    "weight": {"value": payload.package_weight_oz, "unit": "OUNCE"}
-                }
+            if payload.package_weight_oz is not None or payload.package_dims is not None:
+                pkg_block: dict[str, Any] = {}
+                if payload.package_weight_oz is not None:
+                    pkg_block["weight"] = {"value": payload.package_weight_oz, "unit": "OUNCE"}
+                if payload.package_dims is not None:
+                    pkg_block["dimensions"] = {
+                        "length": payload.package_dims.length_in,
+                        "width": payload.package_dims.width_in,
+                        "height": payload.package_dims.height_in,
+                        "unit": "INCH",
+                    }
+                inv_body["packageWeightAndSize"] = pkg_block
             self._request(
                 "PUT",
                 inv_url,
@@ -596,6 +661,116 @@ class LiveEbayAdapter:
             route_used="TRADING_XML_FALLBACK",
             timestamp_utc=utc_now_iso(),
         )
+
+    def bulk_publish_listings(self, payloads: list[StagedListingPayload]) -> list[PublishReceipt]:
+        """Publish up to 25 SKUs per batch via Sell Inventory bulk_create_or_replace_inventory_item
+        and bulk_create_offer (falling back cleanly to publish_listing on C2C accounts).
+        """
+        if not payloads:
+            return []
+        receipts: list[PublishReceipt] = []
+        base = self._settings.api_base_url.rstrip("/")
+
+        for start in range(0, len(payloads), 25):
+            chunk = payloads[start : start + 25]
+            rest_chunk = [p for p in chunk if p.route_mode == "INVENTORY_REST"]
+            xml_chunk = [p for p in chunk if p.route_mode != "INVENTORY_REST"]
+
+            if rest_chunk:
+                inv_requests: list[dict[str, Any]] = []
+                offer_requests: list[dict[str, Any]] = []
+                for p in rest_chunk:
+                    inv_entry: dict[str, Any] = {
+                        "sku": p.sku,
+                        "locale": "en_US",
+                        "availability": {"shipToLocationAvailability": {"quantity": 1}},
+                        "condition": p.condition.value,
+                        "product": {
+                            "title": p.title,
+                            "description": p.description,
+                            "aspects": {k: [v] for k, v in p.aspects.items()},
+                            "imageUrls": p.media_urls,
+                        },
+                    }
+                    if p.package_weight_oz is not None or p.package_dims is not None:
+                        pkg: dict[str, Any] = {}
+                        if p.package_weight_oz is not None:
+                            pkg["weight"] = {"value": p.package_weight_oz, "unit": "OUNCE"}
+                        if p.package_dims is not None:
+                            pkg["dimensions"] = {
+                                "length": p.package_dims.length_in,
+                                "width": p.package_dims.width_in,
+                                "height": p.package_dims.height_in,
+                                "unit": "INCH",
+                            }
+                        inv_entry["packageWeightAndSize"] = pkg
+                    inv_requests.append(inv_entry)
+
+                    offer_entry: dict[str, Any] = {
+                        "sku": p.sku,
+                        "marketplaceId": p.marketplace_id,
+                        "format": "FIXED_PRICE",
+                        "availableQuantity": 1,
+                        "categoryId": p.category_id,
+                        "listingDescription": p.description,
+                        "pricingSummary": {
+                            "price": {"value": _cents_to_dollars_str(p.list_price_cents), "currency": "USD"}
+                        },
+                        "listingPolicies": {
+                            "fulfillmentPolicyId": p.fulfillment_policy_id,
+                            "paymentPolicyId": p.payment_policy_id,
+                            "returnPolicyId": p.return_policy_id,
+                        },
+                    }
+                    if p.merchant_location_key:
+                        offer_entry["merchantLocationKey"] = p.merchant_location_key
+                    offer_requests.append(offer_entry)
+
+                self._request(
+                    "POST",
+                    f"{base}/sell/inventory/v1/bulk_create_or_replace_inventory_item",
+                    json_payload={"requests": inv_requests},
+                    headers={"Content-Language": "en-US"},
+                )
+                bulk_offer_resp = self._request(
+                    "POST",
+                    f"{base}/sell/inventory/v1/bulk_create_offer",
+                    json_payload={"requests": offer_requests},
+                    headers={"Content-Language": "en-US"},
+                ).json()
+
+                responses = bulk_offer_resp.get("responses") or []
+                offer_by_sku = {
+                    str(r.get("sku") or ""): str(r.get("offerId") or "")
+                    for r in responses
+                    if r.get("offerId")
+                }
+                for idx, p in enumerate(rest_chunk):
+                    offer_id = offer_by_sku.get(p.sku) or (
+                        str(responses[idx]["offerId"])
+                        if idx < len(responses) and responses[idx].get("offerId")
+                        else ""
+                    )
+                    if not offer_id:
+                        raise EbayApiError(502, f"bulk_create_offer returned no offerId for SKU {p.sku}")
+                    pub_resp = self._request(
+                        "POST",
+                        f"{base}/sell/inventory/v1/offer/{quote(offer_id)}/publish",
+                    ).json()
+                    receipts.append(
+                        PublishReceipt(
+                            sku=p.sku,
+                            ebay_item_id=str(pub_resp["listingId"]),
+                            offer_id=offer_id,
+                            route_used="INVENTORY_REST",
+                            timestamp_utc=utc_now_iso(),
+                        )
+                    )
+
+            for p in xml_chunk:
+                receipts.append(self.publish_listing(p))
+
+        return receipts
 
     def revise_listing(
         self, sku: str, ebay_item_id: str, changes: dict[str, Any]

@@ -11,23 +11,52 @@ from .tools.phase1_mvp import (
     SCHEMA_AUDIT_ACTIVE_LISTING,
     SCHEMA_CHECK_COMPS,
     SCHEMA_CONFIRM_ACTION,
+    SCHEMA_EXPORT_DRAFT_CSV,
     SCHEMA_STAGE_LISTING,
     handle_audit_active_listing,
     handle_check_comps,
     handle_confirm_action,
+    handle_export_draft_csv,
     handle_stage_listing,
 )
 from .tools.phase2_ops import (
+    SCHEMA_DIAGNOSE_STALE,
+    SCHEMA_IMPORT_MIGRATION_CSV,
     SCHEMA_LOOKUP_BIN,
     SCHEMA_TRIAGE_OFFERS,
+    handle_diagnose_stale,
+    handle_import_migration_csv,
     handle_lookup_bin,
     handle_triage_offers,
 )
 
 TOOLSET_NAME = "ebay_ops"
-SKILL_PATH = Path(__file__).resolve().parent / "skills" / "ebay-seller-ops" / "SKILL.md"
+SKILLS_DIR = Path(__file__).resolve().parent / "skills"
+SKILL_PATH = SKILLS_DIR / "ebay-seller-ops" / "SKILL.md"
 SKILL_DESCRIPTION = (
-    "Multimodal listing intake, anti-INAD QA etiquette, unit economics, and progressive C2C-to-Pro store workflows."
+    "Multimodal listing intake, anti-INAD QA etiquette, 2026 unit economics (PLG + 139-DIM), and progressive C2C-to-Pro store workflows."
+)
+CATEGORY_SKILLS: tuple[tuple[str, Path, str], ...] = (
+    (
+        "ebay-apparel-footwear",
+        SKILLS_DIR / "ebay-apparel-footwear" / "SKILL.md",
+        "Apparel & footwear playbook: Aug 2026 Size Standardization, 2990/3000/3010 fashion conditions, ruler measurements, and $200-$500 Ship With eBay guard.",
+    ),
+    (
+        "ebay-motors-fitment",
+        SKILLS_DIR / "ebay-motors-fitment" / "SKILL.md",
+        "eBay Motors Parts & Accessories playbook: OEM MPN front-loading, YMM fitment tables (replacing myFitment), and mandatory 30-day free returns > $10.",
+    ),
+    (
+        "ebay-vintage-collectibles",
+        SKILLS_DIR / "ebay-vintage-collectibles" / "SKILL.md",
+        "Vintage & Collectibles playbook: Catalog-Number Defense keeping mold/box numbers out of MPN/Model, search_by_image comps, and condition disclosures.",
+    ),
+    (
+        "ebay-cards-coins-media",
+        SKILLS_DIR / "ebay-cards-coins-media" / "SKILL.md",
+        "Trading Cards, Coins & Media playbook: PSA/BGS/SGC/PCGS slab verification, May 2026 mandatory coin condition grading, and eBay Standard Envelope rules.",
+    ),
 )
 
 
@@ -101,6 +130,12 @@ def register(ctx: Any) -> None:
         schema=SCHEMA_CONFIRM_ACTION,
         handler=handle_confirm_action,
     )
+    ctx.register_tool(
+        name="ebay_export_draft_csv",
+        toolset=TOOLSET_NAME,
+        schema=SCHEMA_EXPORT_DRAFT_CSV,
+        handler=handle_export_draft_csv,
+    )
 
     # Phase 2 Pro Reseller Tools (gated via check_fn=is_pro_ops_enabled)
     ctx.register_tool(
@@ -117,6 +152,22 @@ def register(ctx: Any) -> None:
         handler=handle_lookup_bin,
         check_fn=is_pro_ops_enabled,
     )
+    ctx.register_tool(
+        name="ebay_import_migration_csv",
+        toolset=TOOLSET_NAME,
+        schema=SCHEMA_IMPORT_MIGRATION_CSV,
+        handler=handle_import_migration_csv,
+        check_fn=is_pro_ops_enabled,
+    )
+    ctx.register_tool(
+        name="ebay_diagnose_stale",
+        toolset=TOOLSET_NAME,
+        schema=SCHEMA_DIAGNOSE_STALE,
+        handler=handle_diagnose_stale,
+        check_fn=is_pro_ops_enabled,
+    )
 
-    # Bundled Multimodal Seller Etiquette Skill
+    # Bundled Multimodal Seller Etiquette + 4 Specialized 2026 Category Playbook Skills
     ctx.register_skill("ebay-seller-ops", SKILL_PATH, description=SKILL_DESCRIPTION)
+    for skill_name, skill_file, skill_desc in CATEGORY_SKILLS:
+        ctx.register_skill(skill_name, skill_file, description=skill_desc)

@@ -38,6 +38,11 @@ def mint_sku(now: datetime | None = None) -> str:
     return f"HRM-{date_part}-{rand_part}"
 
 
+FASHION_CATEGORY_IDS: frozenset[str] = frozenset(
+    {"57988", "11483", "15709", "11450", "15724", "63861", "93427", "63862", "45333"}
+)
+
+
 class ConditionEnum(str, Enum):
     """Standardized eBay Inventory/Trading condition enumerations."""
 
@@ -67,6 +72,23 @@ class ConditionEnum(str, Enum):
         }
         return mapping[self]
 
+    def browse_condition_id(self, category_id: str | None = None) -> str:
+        """Return 2026 expanded pre-owned fashion ConditionID (2990/3000/3010) when in apparel/footwear."""
+        if category_id and str(category_id) in FASHION_CATEGORY_IDS:
+            fashion_map = {
+                ConditionEnum.NEW: "1000",
+                ConditionEnum.NEW_OTHER: "1500",
+                ConditionEnum.NEW_WITH_DEFECTS: "1750",
+                ConditionEnum.LIKE_NEW: "2990",
+                ConditionEnum.USED_EXCELLENT: "2990",
+                ConditionEnum.USED_VERY_GOOD: "2990",
+                ConditionEnum.USED_GOOD: "3000",
+                ConditionEnum.USED_ACCEPTABLE: "3010",
+                ConditionEnum.FOR_PARTS_OR_NOT_WORKING: "7000",
+            }
+            return fashion_map[self]
+        return self.trading_condition_id
+
 
 _CONDITION_SYNONYMS: dict[str, ConditionEnum] = {
     "NEW": ConditionEnum.NEW,
@@ -87,15 +109,19 @@ _CONDITION_SYNONYMS: dict[str, ConditionEnum] = {
     "PRE_OWNED": ConditionEnum.USED_EXCELLENT,
     "PREOWNED": ConditionEnum.USED_EXCELLENT,
     "EXCELLENT": ConditionEnum.USED_EXCELLENT,
+    "2990": ConditionEnum.USED_EXCELLENT,
     "USED": ConditionEnum.USED_GOOD,
     "3000": ConditionEnum.USED_EXCELLENT,
     "USED_VERY_GOOD": ConditionEnum.USED_VERY_GOOD,
     "VERY_GOOD": ConditionEnum.USED_VERY_GOOD,
     "4000": ConditionEnum.USED_VERY_GOOD,
     "USED_GOOD": ConditionEnum.USED_GOOD,
+    "PRE_OWNED_GOOD": ConditionEnum.USED_GOOD,
     "GOOD": ConditionEnum.USED_GOOD,
     "5000": ConditionEnum.USED_GOOD,
     "USED_ACCEPTABLE": ConditionEnum.USED_ACCEPTABLE,
+    "PRE_OWNED_FAIR": ConditionEnum.USED_ACCEPTABLE,
+    "3010": ConditionEnum.USED_ACCEPTABLE,
     "ACCEPTABLE": ConditionEnum.USED_ACCEPTABLE,
     "FAIR": ConditionEnum.USED_ACCEPTABLE,
     "6000": ConditionEnum.USED_ACCEPTABLE,
@@ -135,6 +161,7 @@ class ActionType(str, Enum):
     REVISE_LISTING = "REVISE_LISTING"
     BOOTSTRAP_POLICIES = "BOOTSTRAP_POLICIES"
     RESPOND_OFFER = "RESPOND_OFFER"
+    BULK_PUBLISH = "BULK_PUBLISH"
 
 
 class ActionStatus(str, Enum):
@@ -288,6 +315,11 @@ class BootstrapPoliciesPayload(StrictModel):
     shipping_service: str = "USPSGroundAdvantage"
 
 
+class BulkPublishPayload(StrictModel):
+    items: list[StagedListingPayload] = Field(min_length=1, max_length=25)
+    source_format: str = "CSV_IMPORT"
+
+
 class RespondOfferPayload(StrictModel):
     sku: str | None = None
     ebay_item_id: str = Field(min_length=1)
@@ -362,6 +394,8 @@ class StageListingInput(StrictModel):
     bin_code: str | None = None
     floor_price_cents: PositiveCents | None = None
     package_weight_oz: float | None = Field(default=None, gt=0, le=2400)
+    package_dims: PackageDimensions | None = None
+    plg_ad_rate_bps: int = Field(default=0, ge=0, le=3000)
     sku: str | None = None
 
     @field_validator("condition", mode="before")
@@ -404,6 +438,9 @@ class CheckCompsInput(StrictModel):
     category_id: str | None = None
     condition: ConditionEnum | None = None
     cogs_cents: NonNegativeCents | None = None
+    plg_ad_rate_bps: int = Field(default=0, ge=0, le=3000)
+    buyer_tax_rate_bps: int = Field(default=0, ge=0, le=1500)
+    image_b64: str | None = None
 
     @field_validator("condition", mode="before")
     @classmethod
@@ -423,7 +460,26 @@ class ConfirmActionInput(StrictModel):
 class TriageOffersInput(StrictModel):
     ebay_item_id: str | None = None
     min_margin_bps: int = Field(default=1500, ge=0, le=9500)
+    plg_ad_rate_bps: int = Field(default=0, ge=0, le=3000)
 
 
 class LookupBinInput(StrictModel):
     limit: int = Field(default=25, ge=1, le=100)
+
+
+class ExportDraftCsvInput(StrictModel):
+    skus: list[str] = Field(default_factory=list)
+    status_filter: Literal["STAGED", "ALL"] = "STAGED"
+    location_label: str = Field(default="United States", min_length=2, max_length=80)
+
+
+class ImportMigrationCsvInput(StrictModel):
+    csv_text: str = Field(min_length=5)
+    source_hint: Literal["auto", "inkfrog", "myfitment", "seller_hub"] = "auto"
+    default_condition: ConditionEnum = ConditionEnum.USED_GOOD
+
+
+class DiagnoseStaleInput(StrictModel):
+    min_age_days: int = Field(default=90, ge=30, le=365)
+    daily_prune_cap: int = Field(default=5, ge=1, le=25)
+    prune_discount_bps: int = Field(default=500, ge=100, le=2500)

@@ -1,33 +1,49 @@
 """Phase 2 Pro reseller tools (gated via check_fn=is_pro_ops_enabled):
 - ebay_triage_offers
 - ebay_lookup_bin
+- ebay_import_migration_csv
+- ebay_diagnose_stale
 """
 
 from __future__ import annotations
 
+import json
 import re
-from typing import Any
+from typing import Any, Literal
 
 from hermes_cli.plugin_provider_requests import ProviderNotSignedIn
 from pydantic import ValidationError
 
 from ..adapter import EbayApiError, get_adapter
+from ..cache_store import list_haul_summaries
+from ..compliance import screen_listing_compliance
 from ..config import get_settings
+from ..csv_drafts import parse_migration_csv
 from ..db import (
     append_item_event,
     get_db,
     get_item_by_ebay_item_id,
     get_item_by_sku,
     get_or_create_seller_profile,
+    maybe_enable_pro_ops,
     stage_pending_action,
+    update_seller_capabilities,
+    upsert_item,
 )
+from ..diagnostics import analyze_stale_listings, detect_unpaid_96h_offers
 from ..models import (
     ActionType,
     BestOfferLifecycleStatus,
+    BulkPublishPayload,
+    DiagnoseStaleInput,
     EventActor,
+    ImportMigrationCsvInput,
+    ItemStatus,
     LookupBinInput,
     OfferDecisionAction,
     RespondOfferPayload,
+    SourceMode,
+    StagedListingPayload,
     TriageOffersInput,
 )
 from . import compute_economics, format_tool_response, format_usd
@@ -51,6 +67,10 @@ SCHEMA_TRIAGE_OFFERS: dict[str, Any] = {
                 "type": "integer",
                 "description": "Minimum target net profit margin in basis points when floor_price_cents is unset (default 1500 = 15.0%).",
             },
+            "plg_ad_rate_bps": {
+                "type": "integer",
+                "description": "Optional Jan 2026 Promoted Listings General ad rate in basis points (e.g. 500 for 5.0%) deducted from net profit.",
+            },
         },
         "required": [],
     },
@@ -68,6 +88,62 @@ SCHEMA_LOOKUP_BIN: dict[str, Any] = {
             "limit": {
                 "type": "integer",
                 "description": "Maximum number of paid orders to retrieve (1-100, default 25).",
+            },
+        },
+        "required": [],
+    },
+}
+
+SCHEMA_IMPORT_MIGRATION_CSV: dict[str, Any] = {
+    "name": "ebay_import_migration_csv",
+    "description": (
+        "One-step migration importer for displaced sellers moving off shuttered inkFrog (June 1, 2026), "
+        "myFitment (Sept 30, 2026), or Seller Hub CSV exports. Strips broken inkFrog HTML wrappers, aggregates "
+        "multi-row Year/Make/Model/Trim/Engine vehicle fitment, stages normalized drafts in SQLite, and mints a "
+        "single two-step BULK_PUBLISH action_token (`<=25 SKUs/call` via Sell Inventory REST)."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "csv_text": {
+                "type": "string",
+                "description": "Raw CSV export text from inkFrog, myFitment, or Seller Hub Reports.",
+            },
+            "source_hint": {
+                "type": "string",
+                "enum": ["auto", "inkfrog", "myfitment", "seller_hub"],
+                "description": "Optional CSV origin hint (defaults to 'auto' header/content detection).",
+            },
+            "default_condition": {
+                "type": "string",
+                "description": "Fallback condition enum when a CSV row omits ConditionID (default USED_GOOD).",
+            },
+        },
+        "required": ["csv_text"],
+    },
+}
+
+SCHEMA_DIAGNOSE_STALE: dict[str, Any] = {
+    "name": "ebay_diagnose_stale",
+    "description": (
+        "Pro 90-180 day Cassini stale-listing & Haul break-even diagnostic. Distinguishes incomplete-aspect "
+        "listings that need in-place `IN_PLACE_ASPECT_UPGRADE` revisions from healthy-QA aged listings eligible "
+        "for sequential `END_AND_RECREATE_5PCT` gentle pruning (Duplicate Listings Policy safe)."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "min_age_days": {
+                "type": "integer",
+                "description": "Minimum days active before evaluating Cassini staleness (default 90).",
+            },
+            "daily_prune_cap": {
+                "type": "integer",
+                "description": "Safe daily sequential end-and-recreate cap (default 5).",
+            },
+            "prune_discount_bps": {
+                "type": "integer",
+                "description": "Suggested gentle-prune price reduction in basis points (default 500 = 5.0%).",
             },
         },
         "required": [],
@@ -150,6 +226,7 @@ def handle_triage_offers(
                 shipping_est_cents=ship_cents,
                 estimated_fee_bps=fee_bps,
                 cogs_cents=cogs_cents,
+                plg_ad_rate_bps=inp.plg_ad_rate_bps,
             )
 
             min_margin_pct = inp.min_margin_bps / 100.0
@@ -259,12 +336,22 @@ def handle_triage_offers(
                     "Seller accepted; waiting for buyer checkout."
                 )
 
+        unpaid_96h = detect_unpaid_96h_offers(awaiting_payment)
+        if unpaid_96h:
+            md_lines.append("")
+            md_lines.append("#### 96-Hour Unpaid Commitment Alert (`>=4 Days` — Eligible to Cancel & Relist)")
+            for up in unpaid_96h:
+                md_lines.append(
+                    f"- `{up['best_offer_id']}` on `{up['ebay_item_id']}` unpaid for **{up['hours_unpaid']}h** -> `{up['recommendation']}`"
+                )
+
         return format_tool_response(
             {
                 "ok": True,
                 "tool": "ebay_triage_offers",
                 "actionable_offers": actionable_results,
                 "awaiting_buyer_payment": awaiting_payment,
+                "unpaid_96h_flags": unpaid_96h,
                 "skipped_non_active": skipped_other,
                 "preview_card_md": "\n".join(md_lines),
             }
@@ -279,6 +366,227 @@ def handle_triage_offers(
         )
     except EbayApiError as exc:
         return format_tool_response({"ok": False, "error_code": "EBAY_API_ERROR", "message": str(exc)})
+    finally:
+        conn.close()
+
+
+def handle_import_migration_csv(
+    params: dict[str, Any],
+    *,
+    session_id: str = "",
+    platform: str = "",
+    **kwargs: Any,
+) -> str:
+    """Import shuttered inkFrog, myFitment, or Seller Hub CSV exports and stage a <=25 SKU BULK_PUBLISH token."""
+    try:
+        inp = ImportMigrationCsvInput.model_validate(params or {})
+    except ValidationError as exc:
+        return format_tool_response({"ok": False, "error_code": "INVALID_INPUT", "message": str(exc)})
+
+    settings = get_settings()
+    adapter = get_adapter(settings)
+    conn = get_db(settings.plugin_name)
+    try:
+        detected_fmt, parsed_rows = parse_migration_csv(
+            inp.csv_text,
+            source_hint=inp.source_hint,
+            default_condition=inp.default_condition,
+        )
+        if not parsed_rows:
+            return format_tool_response(
+                {"ok": False, "error_code": "EMPTY_CSV", "message": "No valid listing rows found in CSV payload."}
+            )
+
+        capabilities = adapter.check_policy_status(settings.marketplace_id)
+        update_seller_capabilities(conn, capabilities)
+        route_mode: Literal["INVENTORY_REST", "TRADING_XML_FALLBACK"] = (
+            "INVENTORY_REST" if capabilities.policies_opted_in else "TRADING_XML_FALLBACK"
+        )
+
+        staged_payloads: list[StagedListingPayload] = []
+        warnings_summary: list[str] = []
+
+        for row in parsed_rows[:25]:
+            compliance = screen_listing_compliance(
+                title=row["title"],
+                description=row["description"],
+                category_id=row["category_id"],
+                condition=row["condition"],
+                list_price_cents=row["list_price_cents"],
+                aspects=row["aspects"],
+                media_urls_or_paths=row["media_urls"],
+                return_policy_id=capabilities.return_policy_id,
+                sku=row["sku"],
+                conn=conn,
+            )
+            for w in compliance.warnings[:2]:
+                warnings_summary.append(f"`{row['sku']}`: {w}")
+
+            maybe_enable_pro_ops(conn, cogs_cents=row["cogs_cents"], bin_code=row["bin_code"])
+            payload = StagedListingPayload(
+                sku=row["sku"],
+                title=row["title"],
+                description=row["description"],
+                category_id=row["category_id"],
+                condition=row["condition"],
+                list_price_cents=row["list_price_cents"],
+                shipping_est_cents=850,
+                aspects=compliance.sanitized_aspects,
+                media_urls=row["media_urls"],
+                marketplace_id=settings.marketplace_id,
+                route_mode=route_mode,
+                fulfillment_policy_id=capabilities.fulfillment_policy_id,
+                payment_policy_id=capabilities.payment_policy_id,
+                return_policy_id=capabilities.return_policy_id,
+                merchant_location_key=capabilities.merchant_location_key,
+                cogs_cents=row["cogs_cents"],
+                bin_code=row["bin_code"],
+            )
+            staged_payloads.append(payload)
+            upsert_item(
+                conn,
+                sku=payload.sku,
+                source_mode=SourceMode.AGENT_CAPTURE,
+                status=ItemStatus.STAGED,
+                title=payload.title,
+                category_id=payload.category_id,
+                condition_enum=payload.condition,
+                list_price_cents=payload.list_price_cents,
+                shipping_est_cents=payload.shipping_est_cents,
+                aspects=payload.aspects,
+                media_urls=payload.media_urls,
+                cogs_cents=payload.cogs_cents,
+                bin_code=payload.bin_code,
+            )
+            append_item_event(
+                conn,
+                sku=payload.sku,
+                event_type="MIGRATION_CSV_IMPORTED",
+                actor=EventActor.AGENT_STAGED,
+                detail={"source_format": detected_fmt, "session_id": session_id},
+            )
+
+        bulk_model = BulkPublishPayload(items=staged_payloads, source_format=detected_fmt.upper())
+        md_lines = [
+            f"### Migrated `{detected_fmt.upper()}` CSV Batch — **{len(staged_payloads)}** Draft(s) Staged",
+            f"- **Bulk Route**: `{route_mode}` (`<=25 SKUs/call` via Sell Inventory Bulk REST when Business Policies active)",
+            f"- **SKUs**: {', '.join(f'`{p.sku}`' for p in staged_payloads[:10])}",
+        ]
+        for w in warnings_summary[:5]:
+            md_lines.append(f"- **2026 Playbook Pre-Screen**: {w}")
+
+        pending = stage_pending_action(
+            conn,
+            action_type=ActionType.BULK_PUBLISH,
+            sku=staged_payloads[0].sku,
+            payload=bulk_model.model_dump(mode="json"),
+            preview_card_md="\n".join(md_lines),
+        )
+        final_card = "\n".join(md_lines) + f"\n- **Bulk Approval Token**: `{pending.action_token}` *(expires {pending.expires_at})*"
+        conn.execute(
+            "UPDATE pending_actions SET preview_card_md = ? WHERE action_token = ?",
+            (final_card, pending.action_token),
+        )
+        conn.commit()
+
+        return format_tool_response(
+            {
+                "ok": True,
+                "tool": "ebay_import_migration_csv",
+                "detected_format": detected_fmt,
+                "imported_count": len(staged_payloads),
+                "skus": [p.sku for p in staged_payloads],
+                "compliance_warnings": warnings_summary,
+                "action_token": pending.action_token,
+                "expires_at": pending.expires_at,
+                "preview_card_md": final_card,
+            }
+        )
+    except ProviderNotSignedIn as exc:
+        return format_tool_response(
+            {
+                "ok": False,
+                "error_code": "AUTH_REQUIRED",
+                "message": f"Run `hermes auth add hermes-ebay-ops ebay` to connect your eBay account ({exc}).",
+            }
+        )
+    except EbayApiError as exc:
+        return format_tool_response({"ok": False, "error_code": "EBAY_API_ERROR", "message": str(exc)})
+    finally:
+        conn.close()
+
+
+def handle_diagnose_stale(
+    params: dict[str, Any],
+    *,
+    session_id: str = "",
+    platform: str = "",
+    **kwargs: Any,
+) -> str:
+    """Evaluate 90-180d Cassini listing decay and Haul / Death-Pile break-even progress."""
+    try:
+        inp = DiagnoseStaleInput.model_validate(params or {})
+    except ValidationError as exc:
+        return format_tool_response({"ok": False, "error_code": "INVALID_INPUT", "message": str(exc)})
+
+    settings = get_settings()
+    conn = get_db(settings.plugin_name)
+    try:
+        profile = get_or_create_seller_profile(conn)
+        fee_bps = int(profile["estimated_fee_bps"])
+        raw_items = [dict(r) for r in conn.execute("SELECT * FROM items ORDER BY updated_at DESC").fetchall()]
+        for it in raw_items:
+            try:
+                it["aspects"] = json.loads(it.get("aspects_json") or "{}")
+            except Exception:
+                it["aspects"] = {}
+            econ = compute_economics(
+                list_price_cents=int(it["list_price_cents"]),
+                shipping_est_cents=int(it["shipping_est_cents"] or 0),
+                estimated_fee_bps=fee_bps,
+                cogs_cents=it.get("cogs_cents"),
+            )
+            it["estimated_net_payout_cents"] = econ.estimated_net_payout_cents
+
+        stale = analyze_stale_listings(
+            raw_items,
+            min_age_days=inp.min_age_days,
+            daily_prune_cap=inp.daily_prune_cap,
+            prune_discount_bps=inp.prune_discount_bps,
+        )
+        hauls = list_haul_summaries(raw_items, plugin_name=settings.plugin_name)
+
+        md_lines = [
+            f"### Cassini Stale-Listing Diagnostics (`>={inp.min_age_days}d`, {len(stale)} flagged)",
+        ]
+        if not stale:
+            md_lines.append("- Zero active listings exceed the staleness threshold.")
+        else:
+            for row in stale:
+                md_lines.append(
+                    f"- **`{row['sku']}`** ({row['age_days']}d · `{row['playbook']}`) -> **{row['strategy']}** "
+                    f"({format_usd(row['current_price_cents'])} -> {format_usd(row['suggested_price_cents'])}): {row['reason']}"
+                )
+        if hauls:
+            md_lines.append("")
+            md_lines.append("#### Haul & Death-Pile Break-Even Velocity")
+            for h in hauls[:3]:
+                md_lines.append(
+                    f"- **{h['label']}**: {h['listed_count']}/{h['item_count']} listed ({h['pct_listed']}%) · "
+                    f"Remaining Break-Even: **{format_usd(h['remaining_breakeven_cents'])}** · "
+                    f"Next {h['sprint_items']}-item sprint (~{h['sprint_minutes']}m) unlocks ~{format_usd(h['sprint_ebay_balance_unlock_cents'])} eBay Balance."
+                )
+
+        return format_tool_response(
+            {
+                "ok": True,
+                "tool": "ebay_diagnose_stale",
+                "stale_count": len(stale),
+                "stale_listings": stale,
+                "hauls": hauls,
+                "preview_card_md": "\n".join(md_lines),
+            }
+        )
     finally:
         conn.close()
 

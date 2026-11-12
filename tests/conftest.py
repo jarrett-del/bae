@@ -33,8 +33,8 @@ def _install_hermes_stubs_if_absent() -> None:
                 base.mkdir(parents=True, exist_ok=True)
                 return base
 
-            def plugin_db(plugin_name: str) -> sqlite3.Connection:
-                db_path = plugin_data_dir(plugin_name) / "data.db"
+            def plugin_db(plugin_name: str, filename: str = "data.db") -> sqlite3.Connection:
+                db_path = plugin_data_dir(plugin_name) / filename
                 conn = sqlite3.connect(str(db_path))
                 conn.execute("PRAGMA journal_mode = WAL;")
                 return conn

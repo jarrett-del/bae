@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from plugins.plugin_storage import plugin_db
+from plugins.plugin_storage import plugin_data_dir, plugin_db
 
 from .config import PLUGIN_NAME, get_settings
 from .models import (
@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS items (
 CREATE TABLE IF NOT EXISTS pending_actions (
     action_token            TEXT PRIMARY KEY,
     action_type             TEXT NOT NULL CHECK (
-                                action_type IN ('PUBLISH_LISTING', 'REVISE_LISTING', 'BOOTSTRAP_POLICIES', 'RESPOND_OFFER')
+                                action_type IN ('PUBLISH_LISTING', 'REVISE_LISTING', 'BOOTSTRAP_POLICIES', 'RESPOND_OFFER', 'BULK_PUBLISH')
                             ),
     sku                     TEXT REFERENCES items(sku),
     payload_json            TEXT NOT NULL,
@@ -168,15 +168,117 @@ def init_schema(conn: sqlite3.Connection) -> sqlite3.Connection:
     conn.execute("PRAGMA busy_timeout = 5000;")
     conn.execute("PRAGMA foreign_keys = ON;")
     conn.executescript(SCHEMA_SQL)
+    item_cols = {str(r["name"]) for r in conn.execute("PRAGMA table_info(items)").fetchall()}
+    if "package_dims_json" not in item_cols:
+        conn.execute("ALTER TABLE items ADD COLUMN package_dims_json TEXT;")
+    pa_ddl_row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'pending_actions'"
+    ).fetchone()
+    if pa_ddl_row and "BULK_PUBLISH" not in str(pa_ddl_row["sql"]):
+        conn.execute("PRAGMA foreign_keys = OFF;")
+        conn.executescript(
+            """
+            CREATE TABLE pending_actions_v2 (
+                action_token    TEXT PRIMARY KEY,
+                action_type     TEXT NOT NULL CHECK (
+                                    action_type IN ('PUBLISH_LISTING', 'REVISE_LISTING', 'BOOTSTRAP_POLICIES', 'RESPOND_OFFER', 'BULK_PUBLISH')
+                                ),
+                sku             TEXT REFERENCES items(sku),
+                payload_json    TEXT NOT NULL,
+                payload_sha256  TEXT NOT NULL,
+                preview_card_md TEXT NOT NULL,
+                status          TEXT NOT NULL DEFAULT 'PENDING' CHECK (
+                                    status IN ('PENDING', 'EXECUTED', 'EXPIRED', 'CANCELLED', 'FAILED')
+                                ),
+                expires_at      TEXT NOT NULL,
+                created_at      TEXT NOT NULL,
+                executed_at     TEXT
+            );
+            INSERT INTO pending_actions_v2 SELECT * FROM pending_actions;
+            DROP TABLE pending_actions;
+            ALTER TABLE pending_actions_v2 RENAME TO pending_actions;
+            """
+        )
     conn.execute("PRAGMA foreign_keys = ON;")
     conn.commit()
     return conn
 
 
-def get_db(plugin_name: str | None = None) -> sqlite3.Connection:
+def get_active_tour_info(plugin_name: str | None = None) -> dict[str, Any] | None:
+    """Return active sample-data tour metadata if the desk is currently touring, else None."""
+    resolved_name = plugin_name or get_settings().plugin_name or PLUGIN_NAME
+    try:
+        tour_file = plugin_data_dir(resolved_name) / "tour_state.json"
+        if not tour_file.is_file():
+            return None
+        data = json.loads(tour_file.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and data.get("id"):
+            return data
+    except Exception:
+        return None
+    return None
+
+
+def set_active_tour_info(
+    info: dict[str, Any] | None,
+    plugin_name: str | None = None,
+) -> None:
+    """Activate or clear sample-data tour state without touching the real data.db ledger."""
+    resolved_name = plugin_name or get_settings().plugin_name or PLUGIN_NAME
+    tour_file = plugin_data_dir(resolved_name) / "tour_state.json"
+    if info is None:
+        tour_file.unlink(missing_ok=True)
+        return
+    tour_file.write_text(json.dumps(info, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def get_packed_order_ids(plugin_name: str | None = None) -> set[str]:
+    """Return order IDs marked packed on the warehouse pick-list."""
+    resolved_name = plugin_name or get_settings().plugin_name or PLUGIN_NAME
+    tour = get_active_tour_info(resolved_name)
+    fname = f"packed_{tour['id']}.json" if tour else "packed_orders.json"
+    try:
+        packed_file = plugin_data_dir(resolved_name) / fname
+        if not packed_file.is_file():
+            return set()
+        raw = json.loads(packed_file.read_text(encoding="utf-8"))
+        return {str(x) for x in raw} if isinstance(raw, list) else set()
+    except Exception:
+        return set()
+
+
+def toggle_packed_order_id(order_id: str, plugin_name: str | None = None) -> bool:
+    """Toggle packed status for an order line on the pick-list; returns new packed boolean."""
+    resolved_name = plugin_name or get_settings().plugin_name or PLUGIN_NAME
+    tour = get_active_tour_info(resolved_name)
+    fname = f"packed_{tour['id']}.json" if tour else "packed_orders.json"
+    packed = get_packed_order_ids(resolved_name)
+    oid = str(order_id).strip()
+    if oid in packed:
+        packed.remove(oid)
+        now_packed = False
+    else:
+        packed.add(oid)
+        now_packed = True
+    packed_file = plugin_data_dir(resolved_name) / fname
+    packed_file.write_text(json.dumps(sorted(packed), indent=2), encoding="utf-8")
+    return now_packed
+
+
+def get_db(
+    plugin_name: str | None = None,
+    *,
+    filename: str | None = None,
+) -> sqlite3.Connection:
     """Open and initialize the profile-scoped Hermes plugin SQLite database."""
     resolved_name = plugin_name or get_settings().plugin_name or PLUGIN_NAME
-    conn = plugin_db(resolved_name)
+    target_filename = filename
+    if target_filename is None:
+        target_filename = "tour.db" if get_active_tour_info(resolved_name) else "data.db"
+    try:
+        conn = plugin_db(resolved_name, filename=target_filename)
+    except TypeError:
+        conn = plugin_db(resolved_name)
     return init_schema(conn)
 
 
@@ -409,6 +511,32 @@ def get_item_by_sku(conn: sqlite3.Connection, sku: str) -> dict[str, Any] | None
 def get_item_by_ebay_item_id(conn: sqlite3.Connection, ebay_item_id: str) -> dict[str, Any] | None:
     row = conn.execute("SELECT * FROM items WHERE ebay_item_id = ?", (ebay_item_id,)).fetchone()
     return dict(row) if row is not None else None
+
+
+def find_realized_sold_comps(
+    conn: sqlite3.Connection,
+    query: str,
+    category_id: str | None = None,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Return realized SOLD items from the seller's own local ledger matching query keywords or category."""
+    tokens = [tok.lower() for tok in query.split() if len(tok) >= 3][:6]
+    rows = [
+        dict(r)
+        for r in conn.execute(
+            "SELECT sku, ebay_item_id, title, category_id, condition_enum, list_price_cents, shipping_est_cents, updated_at "
+            "FROM items WHERE status = 'SOLD' ORDER BY updated_at DESC LIMIT 100"
+        ).fetchall()
+    ]
+    matched: list[dict[str, Any]] = []
+    for row in rows:
+        if category_id and str(row["category_id"]) == str(category_id):
+            matched.append(row)
+            continue
+        hay = str(row["title"]).lower()
+        if tokens and any(tok in hay for tok in tokens):
+            matched.append(row)
+    return matched[:limit]
 
 
 def append_item_event(

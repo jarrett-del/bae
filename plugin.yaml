@@ -1,6 +1,16 @@
 name: hermes-ebay-ops
 version: "0.1.0"
-description: Multimodal listing QA, unit economics, and store ops companion for eBay sellers
+manifest_version: 2
+description: Multimodal listing QA, unit economics, and store ops companion for eBay sellers — with a Hermes Dashboard tab and interactive Seller Studio Webapp
+author: jarrett-del
+license: MIT
+homepage: https://github.com/jarrett-del/vendere
+tags:
+  - ebay
+  - commerce
+  - reseller
+  - inventory
+  - listings
 python_dependencies:
   - pydantic>=2.7.0
   - defusedxml>=0.7.1
@@ -24,27 +34,57 @@ oauth:
       - https://api.ebay.com/oauth/api_scope/sell.account
       - https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly
       - https://api.ebay.com/oauth/api_scope/commerce.identity.readonly
+      - https://api.ebay.com/oauth/api_scope/commerce.message
+      - https://api.ebay.com/oauth/api_scope/sell.analytics.readonly
+      - https://api.ebay.com/oauth/api_scope/sell.finances
 config_schema:
   mode:
     type: str
     default: auto
-    description: Progressive tool visibility mode (auto, lite, or pro)
+    choices:
+      - auto
+      - lite
+      - pro
+    label: Seller Ops Mode
+    description: Progressive tool visibility mode (auto unlocks Pro tools once COGS or bin codes are entered)
+  adapter_mode:
+    type: str
+    default: live
+    choices:
+      - live
+      - mock
+    label: eBay Adapter
+    description: Use live eBay APIs via Hermes OAuth or deterministic local mock data
+  mock_persona:
+    type: str
+    default: lite
+    choices:
+      - lite
+      - pro
+    label: Mock Seller Persona
+    description: Default seller persona when adapter_mode is mock
   marketplace_id:
     type: str
     default: EBAY_US
-    description: Default eBay marketplace identifier
+    label: Marketplace ID
+    description: Default eBay marketplace identifier (e.g. EBAY_US, EBAY_GB, EBAY_CA)
   media_base_url:
     type: str
     default: https://apiz.ebay.com
+    label: Commerce Media Host
     description: Base URL for Commerce Media createImageFromFile uploads (https://apiz.ebay.com or https://apim.ebay.com)
   action_token_ttl_seconds:
     type: int
     default: 900
+    label: Approval Token TTL (seconds)
     description: Expiration window in seconds for two-step write action tokens
 provides_tools:
   - ebay_stage_listing
   - ebay_audit_active_listing
   - ebay_check_comps
   - ebay_confirm_action
+  - ebay_export_draft_csv
   - ebay_triage_offers
   - ebay_lookup_bin
+  - ebay_import_migration_csv
+  - ebay_diagnose_stale

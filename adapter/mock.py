@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
+from ..cache_store import get_cached_category_aspects, put_cached_category_aspects
 from ..models import (
     AccountCapabilities,
     ActiveListingSnapshot,
@@ -204,8 +205,11 @@ class MockEbayAdapter:
     def get_category_aspects(
         self, category_id: str, marketplace_id: str = "EBAY_US"
     ) -> list[CategoryAspectSpec]:
+        cached = get_cached_category_aspects(category_id, marketplace_id)
+        if cached is not None:
+            return cached
         if category_id == "11483":
-            return [
+            specs = [
                 CategoryAspectSpec(name="Brand", required=True, usage="REQUIRED"),
                 CategoryAspectSpec(name="Size Type", required=True, usage="REQUIRED", allowed_values=["Regular", "Big & Tall"]),
                 CategoryAspectSpec(name="Size", required=True, usage="REQUIRED"),
@@ -214,67 +218,78 @@ class MockEbayAdapter:
                 CategoryAspectSpec(name="Style", required=True, usage="REQUIRED"),
                 CategoryAspectSpec(name="Waist Size", required=False, usage="RECOMMENDED"),
             ]
-        if category_id == "15709":
-            return [
+        elif category_id == "15709":
+            specs = [
                 CategoryAspectSpec(name="Brand", required=True, usage="REQUIRED"),
                 CategoryAspectSpec(name="US Shoe Size", required=True, usage="REQUIRED"),
                 CategoryAspectSpec(name="Department", required=True, usage="REQUIRED"),
                 CategoryAspectSpec(name="Style Code", required=False, usage="RECOMMENDED"),
                 CategoryAspectSpec(name="Shoe Width", required=False, usage="RECOMMENDED"),
             ]
-        return [
-            CategoryAspectSpec(name="Brand", required=True, usage="REQUIRED"),
-            CategoryAspectSpec(name="Size Type", required=True, usage="REQUIRED", allowed_values=["Regular", "Big & Tall"]),
-            CategoryAspectSpec(name="Size", required=True, usage="REQUIRED"),
-            CategoryAspectSpec(name="Department", required=True, usage="REQUIRED", allowed_values=["Men", "Women", "Unisex Adults"]),
-            CategoryAspectSpec(name="Type", required=True, usage="REQUIRED", allowed_values=["Jacket", "Coat", "Vest"]),
-            CategoryAspectSpec(name="Chest Size", required=False, usage="RECOMMENDED"),
-            CategoryAspectSpec(name="Garment Length", required=False, usage="RECOMMENDED"),
-            CategoryAspectSpec(name="Outer Shell Material", required=False, usage="RECOMMENDED"),
-        ]
+        elif category_id in {"6030", "33615"}:
+            specs = [
+                CategoryAspectSpec(name="Brand", required=True, usage="REQUIRED"),
+                CategoryAspectSpec(name="MPN", required=True, usage="REQUIRED"),
+                CategoryAspectSpec(name="Placement on Vehicle", required=False, usage="RECOMMENDED"),
+                CategoryAspectSpec(name="Compatible Vehicles", required=False, usage="RECOMMENDED"),
+            ]
+        else:
+            specs = [
+                CategoryAspectSpec(name="Brand", required=True, usage="REQUIRED"),
+                CategoryAspectSpec(name="Size Type", required=True, usage="REQUIRED", allowed_values=["Regular", "Big & Tall"]),
+                CategoryAspectSpec(name="Size", required=True, usage="REQUIRED"),
+                CategoryAspectSpec(name="Department", required=True, usage="REQUIRED", allowed_values=["Men", "Women", "Unisex Adults"]),
+                CategoryAspectSpec(name="Type", required=True, usage="REQUIRED", allowed_values=["Jacket", "Coat", "Vest"]),
+                CategoryAspectSpec(name="Chest Size", required=False, usage="RECOMMENDED"),
+                CategoryAspectSpec(name="Garment Length", required=False, usage="RECOMMENDED"),
+                CategoryAspectSpec(name="Outer Shell Material", required=False, usage="RECOMMENDED"),
+            ]
+        put_cached_category_aspects(category_id, marketplace_id, specs)
+        return specs
 
     def search_comps(
         self, query: str, category_id: str | None, condition: str | None
     ) -> CompSummary:
+        safe_q = " ".join(query.split())[:100]
         samples = [
             CompSample(
                 item_id="220001",
-                title=f"{query[:55]} - Comp A",
+                title=f"{safe_q[:55]} - Comp A",
                 price_cents=5200,
                 shipping_cents=795,
                 condition=condition or "USED_GOOD",
             ),
             CompSample(
                 item_id="220002",
-                title=f"{query[:55]} - Comp B",
+                title=f"{safe_q[:55]} - Comp B",
                 price_cents=5900,
                 shipping_cents=845,
                 condition=condition or "USED_GOOD",
             ),
             CompSample(
                 item_id="220003",
-                title=f"{query[:55]} - Comp C",
+                title=f"{safe_q[:55]} - Comp C",
                 price_cents=6500,
                 shipping_cents=850,
                 condition=condition or "USED_GOOD",
             ),
             CompSample(
                 item_id="220004",
-                title=f"{query[:55]} - Comp D",
+                title=f"{safe_q[:55]} - Comp D",
                 price_cents=7200,
                 shipping_cents=895,
                 condition=condition or "USED_GOOD",
             ),
             CompSample(
                 item_id="220005",
-                title=f"{query[:55]} - Comp E",
+                title=f"{safe_q[:55]} - Comp E",
                 price_cents=8100,
                 shipping_cents=950,
                 condition=condition or "USED_GOOD",
             ),
         ]
         return CompSummary(
-            query=query,
+            query=safe_q,
             category_id=category_id,
             condition=condition,
             sample_count=len(samples),
@@ -284,6 +299,11 @@ class MockEbayAdapter:
             typical_shipping_cents=850,
             samples=samples,
         )
+
+    def search_comps_by_image(
+        self, image_b64: str, category_id: str | None = None, condition: str | None = None
+    ) -> CompSummary:
+        return self.search_comps("Visual Image Match", category_id, condition)
 
     def fetch_recent_active_listings(self, limit: int = 10) -> list[ActiveListingSnapshot]:
         return list(self._active_listings[:limit])
@@ -304,6 +324,30 @@ class MockEbayAdapter:
             route_used=route_used,
             timestamp_utc=utc_now_iso(),
         )
+
+    def bulk_publish_listings(self, payloads: list[StagedListingPayload]) -> list[PublishReceipt]:
+        self.write_calls.append(
+            ("bulk_publish_listings", {"count": len(payloads), "skus": [p.sku for p in payloads]})
+        )
+        receipts: list[PublishReceipt] = []
+        for payload in payloads[:25]:
+            self._next_item_seq += 1
+            ebay_item_id = f"11059999{self._next_item_seq}"
+            use_inventory = self._policies_opted_in or payload.route_mode == "INVENTORY_REST"
+            offer_id = f"OFF-{self._next_item_seq}" if use_inventory else None
+            route_used: Literal["INVENTORY_REST", "TRADING_XML_FALLBACK"] = (
+                "INVENTORY_REST" if use_inventory else "TRADING_XML_FALLBACK"
+            )
+            receipts.append(
+                PublishReceipt(
+                    sku=payload.sku,
+                    ebay_item_id=ebay_item_id,
+                    offer_id=offer_id,
+                    route_used=route_used,
+                    timestamp_utc=utc_now_iso(),
+                )
+            )
+        return receipts
 
     def revise_listing(
         self, sku: str, ebay_item_id: str, changes: dict[str, Any]

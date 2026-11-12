@@ -53,7 +53,15 @@ def test_manifest_alignment_skill_bundle_and_initial_lite_gating() -> None:
 
     # Capabilities declared in plugin.yaml match register(ctx) 1-to-1
     assert set(ctx.tools.keys()) == set(manifest["provides_tools"])
-    assert set(ctx.skills.keys()) == {"ebay-seller-ops"}
+    assert set(ctx.skills.keys()) == {
+        "ebay-seller-ops",
+        "ebay-apparel-footwear",
+        "ebay-motors-fitment",
+        "ebay-vintage-collectibles",
+        "ebay-cards-coins-media",
+    }
+    for skill_name, skill_file in ctx.skills.items():
+        assert skill_file.exists(), f"Missing SKILL.md for {skill_name}"
     assert manifest["oauth"][0]["id"] == "ebay"
     assert SKILL_PATH.exists()
     skill_text = SKILL_PATH.read_text(encoding="utf-8")
@@ -61,10 +69,21 @@ def test_manifest_alignment_skill_bundle_and_initial_lite_gating() -> None:
     assert "ebay_confirm_action" in skill_text
 
     # Phase 1 tools are ungated; Phase 2 tools are gated behind check_fn=is_pro_ops_enabled
-    for tname in ("ebay_stage_listing", "ebay_audit_active_listing", "ebay_check_comps", "ebay_confirm_action"):
+    for tname in (
+        "ebay_stage_listing",
+        "ebay_audit_active_listing",
+        "ebay_check_comps",
+        "ebay_confirm_action",
+        "ebay_export_draft_csv",
+    ):
         assert ctx.tools[tname]["check_fn"] is None
 
-    for pro_tool in ("ebay_triage_offers", "ebay_lookup_bin"):
+    for pro_tool in (
+        "ebay_triage_offers",
+        "ebay_lookup_bin",
+        "ebay_import_migration_csv",
+        "ebay_diagnose_stale",
+    ):
         gate_fn = ctx.tools[pro_tool]["check_fn"]
         assert gate_fn is not None
         assert gate_fn() is False  # Casual C2C profile starts with Pro tools hidden
