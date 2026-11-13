@@ -45,6 +45,10 @@ class RecordingContext:
     def register_skill(self, name: str, path: Path, description: str = "", frontmatter: Any = None) -> None:
         self.skills[name] = Path(path)
 
+    def register_hook(self, hook_name: str, callback: Any, *, hold_stream: bool = False) -> None:
+        self.hooks = getattr(self, "hooks", {})
+        self.hooks.setdefault(hook_name, []).append(callback)
+
 
 def test_manifest_alignment_skill_bundle_and_initial_lite_gating() -> None:
     manifest = yaml.safe_load((REPO_ROOT / "plugin.yaml").read_text(encoding="utf-8"))

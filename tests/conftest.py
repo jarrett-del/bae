@@ -1,6 +1,6 @@
 """Pytest harness loading the repository root as package `hermes_ebay_ops`
 (mirroring Hermes Agent's dynamic plugin package loader) and providing isolated
-temporary `plugin_db` / `credentialed_provider_request` test doubles when running
+temporary `plugin_db` / `credentialed_provider_request` / `agent.file_safety` test doubles when running
 outside a full Hermes CLI runtime.
 """
 
@@ -93,6 +93,24 @@ def _install_hermes_stubs_if_absent() -> None:
             req_mod.credentialed_provider_request = credentialed_provider_request  # type: ignore[attr-defined]
             cli_pkg.plugin_provider_requests = req_mod  # type: ignore[attr-defined]
             sys.modules["hermes_cli.plugin_provider_requests"] = req_mod
+
+    if "agent.file_safety" not in sys.modules:
+        try:
+            import agent.file_safety  # noqa: F401
+        except ImportError:
+            agent_pkg = sys.modules.setdefault("agent", types.ModuleType("agent"))
+            safety_mod = types.ModuleType("agent.file_safety")
+
+            def get_read_block_error(path: str) -> str | None:
+                """Stand-in for Hermes's read denylist: like the real one, it resolves symlinks
+                and refuses secret-bearing `.env` files anywhere on disk."""
+                if Path(path).expanduser().resolve().name.lower() == ".env":
+                    return f"Access denied: {path} is a secret-bearing environment file and cannot be read."
+                return None
+
+            safety_mod.get_read_block_error = get_read_block_error  # type: ignore[attr-defined]
+            agent_pkg.file_safety = safety_mod  # type: ignore[attr-defined]
+            sys.modules["agent.file_safety"] = safety_mod
 
 
 def _load_plugin_package() -> types.ModuleType:

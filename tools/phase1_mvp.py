@@ -32,6 +32,7 @@ from ..db import (
     upsert_item,
     verify_pending_action_for_execution,
 )
+from ..file_guard import local_read_block_error
 from ..models import (
     ActionStatus,
     ActionType,
@@ -246,8 +247,10 @@ SCHEMA_CONFIRM_ACTION: dict[str, Any] = {
     "name": "ebay_confirm_action",
     "description": (
         "Execute or cancel a previously staged eBay write action using its single-use cryptographic action_token. "
-        "HARD RULE: Never call decision='APPROVE' unless the human user has explicitly reviewed the preview card "
-        "and confirmed approval in chat."
+        "decision='APPROVE' always opens Hermes's own approval prompt, and the eBay write runs only if the person "
+        "approves it there; it is blocked when nobody is present to answer (cron and other unattended runs). "
+        "Show the preview card first and call APPROVE only after the person has asked for it in chat. "
+        "decision='CANCEL' voids the token without a prompt."
     ),
     "parameters": {
         "type": "object",
@@ -268,7 +271,11 @@ SCHEMA_CONFIRM_ACTION: dict[str, Any] = {
 
 
 def _validate_local_media_paths(media_paths: list[str]) -> tuple[list[str], list[str]]:
-    """Separate local image paths from HTTPS URLs and verify local files exist before staging."""
+    """Separate local image paths from HTTPS URLs and vet local files before staging.
+
+    A local path becomes a public eBay listing photo, so Hermes's read denylist is applied first,
+    before the plugin stats or resolves the file.
+    """
     local_files: list[str] = []
     remote_urls: list[str] = []
     for raw in media_paths:
@@ -278,6 +285,9 @@ def _validate_local_media_paths(media_paths: list[str]) -> tuple[list[str], list
         if cleaned.startswith(("https://", "http://")):
             remote_urls.append(cleaned)
             continue
+        blocked = local_read_block_error(cleaned)
+        if blocked:
+            raise ValueError(blocked)
         path = Path(cleaned)
         if not path.exists() or not path.is_file():
             raise ValueError(f"Media file does not exist: {cleaned}")

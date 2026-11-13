@@ -90,3 +90,5 @@ provides_tools:
   - ebay_lookup_bin
   - ebay_import_migration_csv
   - ebay_diagnose_stale
+provides_hooks:
+  - pre_tool_call

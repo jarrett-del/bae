@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .approval_hook import HOOK_NAME, require_human_approval
 from .config import PLUGIN_NAME, PluginSettings, configure_settings, get_settings
 from .db import get_db, is_pro_ops_flag_set
 from .tools.phase1_mvp import (
@@ -102,8 +103,13 @@ def _load_ctx_settings(ctx: Any) -> None:
 
 
 def register(ctx: Any) -> None:
-    """Register hermes-ebay-ops tools and skills strictly via Hermes public PluginContext."""
+    """Register hermes-ebay-ops hook, tools and skills strictly via Hermes public PluginContext."""
     _load_ctx_settings(ctx)
+
+    # Human gate for live writes, registered before any tool so a host without the hook surface
+    # fails here and never exposes ebay_confirm_action ungated: every model-issued APPROVE goes
+    # to Hermes's own approval prompt.
+    ctx.register_hook(HOOK_NAME, require_human_approval)
 
     # Phase 1 Core Tools (always active when plugin is enabled)
     ctx.register_tool(

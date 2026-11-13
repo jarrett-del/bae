@@ -180,7 +180,7 @@ Key adapter routing behaviors enforced in `adapter/live.py`:
 1. **`ebay_stage_listing`** — Auto-mints `HRM-YYYYMMDD-XXXX` when no SKU is supplied, checks category rules, computes fee/ad/dimensional-weight economics, flips `pro_ops_enabled = 1` if Pro inputs (`cogs_cents`, `bin_code`, `floor_price_cents`) are provided, and stages a `PUBLISH_LISTING` approval token.
 2. **`ebay_audit_active_listing`** — Audits an active eBay listing against category specifics and comps, strips generic AI boilerplate descriptions, and stages a `REVISE_LISTING` approval token.
 3. **`ebay_check_comps`** — Read-only active comp distribution (`P25`, median, `P75`) by keyword or image, joined against local sold history.
-4. **`ebay_confirm_action`** — Verifies `PENDING` status, UTC expiration, and `payload_sha256` integrity before executing any staged write or cancelling it cleanly.
+4. **`ebay_confirm_action`** — Verifies `PENDING` status, UTC expiration, and `payload_sha256` integrity before executing any staged write or cancelling it cleanly. Agent-issued `APPROVE` calls are first escalated to Hermes's approval prompt by the plugin's `pre_tool_call` hook.
 5. **`ebay_export_draft_csv`** — Exports staged items as a Windows `CRLF` CSV formatted for eBay Seller Hub Drafts (`75`-day draft retention).
 
 ### Pro Store Tools (`check_fn=is_pro_ops_enabled`)

@@ -44,6 +44,10 @@ class FakePluginContext:
     def register_skill(self, name: str, path: Path, description: str = "", frontmatter: Any = None) -> None:
         self.skills[name] = Path(path)
 
+    def register_hook(self, hook_name: str, callback: Any, *, hold_stream: bool = False) -> None:
+        self.hooks = getattr(self, "hooks", {})
+        self.hooks.setdefault(hook_name, []).append(callback)
+
 
 def _stage_sample_listing(tmp_path: Path) -> dict[str, Any]:
     photo = tmp_path / "jacket.jpg"

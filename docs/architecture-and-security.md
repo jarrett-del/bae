@@ -18,7 +18,9 @@
    - Uses modern eBay REST APIs wherever supported, falling back to `defusedxml`-guarded Trading XML only for casual C2C accounts that have not opted into eBay Business Policies (`AddFixedPriceItem` / `ReviseFixedPriceItem`) and for Best Offer negotiation (`GetBestOffers` / `RespondToBestOffer`).
 5. **Cryptographic Two-Step Human Write Gate**:
    - Every live eBay write (`PUBLISH_LISTING`, `REVISE_LISTING`, `BOOTSTRAP_POLICIES`, `RESPOND_OFFER`, `BULK_PUBLISH`) stages a canonical JSON payload in `pending_actions` with a `SHA-256` digest and 15-minute `expires_at` window.
-   - Only `ebay_confirm_action(action_token, user_approved=True)` (or clicking **Approve** in the Seller Desk) executes the upstream write after re-verifying both the TTL and SHA-256 digest inside an `IMMEDIATE` SQLite transaction.
+   - Only `ebay_confirm_action(action_token, decision="APPROVE")` (or clicking **Approve** in the Seller Desk) executes the upstream write after re-verifying both the TTL and SHA-256 digest inside an `IMMEDIATE` SQLite transaction.
+   - The token is not the human gate: the staging tools return it to the agent. The plugin's `pre_tool_call` hook (`approval_hook.py`) escalates every agent-issued `APPROVE` to Hermes's own approval prompt with a one-line summary of the staged write, keyed to that single token, so "session" or "always" answers never cover a different write. Denial, timeout, or a run with nobody present blocks the call. `CANCEL` needs no prompt.
+   - Local photo paths are checked against Hermes's read denylist (`agent.file_safety.get_read_block_error`) before staging and again at upload (`file_guard.py`); if the guard is unavailable, local paths are refused.
 6. **Progressive Lite-to-Pro Enrichment**:
    - Casual C2C sellers never enter SKUs, COGS, floor prices, or bin locations; `bae` mints hidden `HRM-YYYYMMDD-XXXX` SKUs automatically.
    - Supplying `cogs_cents`, `bin_code`, or `floor_price_cents` flips `seller_profile.pro_ops_enabled = 1`, dynamically unlocking `ebay_triage_offers`, `ebay_lookup_bin`, `ebay_import_migration_csv`, and `ebay_diagnose_stale` via `check_fn=is_pro_ops_enabled`.
@@ -44,7 +46,9 @@ Human Reviews Preview Voucher (Chat Markdown Card, Desktop Morning Ops, or 350px
        │
        ├── Cancel / Expired ──► status = 'CANCELLED' or 'EXPIRED' (0 writes)
        │
-       └── Approve ──► ebay_confirm_action(action_token, user_approved=True)
+       └── Approve ──► Seller Desk click, or ebay_confirm_action(action_token, decision="APPROVE")
+                             │  • From chat: Hermes approval prompt first (pre_tool_call hook);
+                             │    denied / timed out / nobody present ──► blocked, 0 writes
                              │  • BEGIN IMMEDIATE lock
                              │  • Verify now < expires_at
                              │  • Verify sha256(payload_json) == payload_sha256

@@ -6,7 +6,7 @@
 
 `bae` helps you turn item photos and quick notes into accurate eBay listings, check real comparable prices, see your true take-home profit after fees and shipping, and stay on top of offers and packing — with both a full-screen **Seller Desk** (`/bae`) and a compact **Side Pane** right inside Hermes.
 
-**Nothing ever goes live on eBay behind your back.** Every new listing, edit, Best Offer reply, or bulk CSV import is staged locally first and waits for your approval before touching your live store.
+**Nothing ever goes live on eBay behind your back.** Every new listing, edit, Best Offer reply, or bulk CSV import is staged locally first and waits for your approval before touching your live store: a click on **Approve** in the Seller Desk, or Hermes's own approval prompt when you approve in chat. The agent cannot approve its own staged changes.
 
 ![bae Seller Desk — Listings Catalog & Item Sheet](docs/images/listings-catalog.png)
 
@@ -100,7 +100,7 @@ node --input-type=module --check < dashboard/dist/index.js
 | `ebay_stage_listing` | Always on | Stages approval | Prepares a draft listing from photos and notes, checks category rules and shipping/fee math, and creates an approval token. |
 | `ebay_audit_active_listing` | Always on | Stages approval | Reviews a live eBay listing for generic AI filler, missing item specifics, or price drift, and stages a clean revision. |
 | `ebay_check_comps` | Always on | Read-only | Looks up comparable active eBay listings (by keyword or image) alongside your own past sold prices. |
-| `ebay_confirm_action` | Always on | **Executes write** | Runs a staged publish, revision, policy setup, offer reply, or bulk publish after verifying your approval token. |
+| `ebay_confirm_action` | Always on | **Executes write** | Runs a staged publish, revision, policy setup, offer reply, or bulk publish. Every `APPROVE` call opens Hermes's approval prompt first and runs only if you approve there; the token is then verified. |
 | `ebay_export_draft_csv` | Always on | Local CSV file | Exports staged drafts as a Windows `CRLF` CSV formatted for eBay Seller Hub Drafts. |
 | `ebay_triage_offers` | Pro mode | Stages approval | Compares active Best Offers against your floor price and ad fees, flags 96-hour unpaid accepted offers, or stages a reply. |
 | `ebay_lookup_bin` | Pro mode | Read-only | Builds a bin-sorted (`A-1` -> `A-2` -> `A-10`) warehouse pick-list for paid orders awaiting shipment. |
@@ -116,9 +116,11 @@ bae/
 ├── LICENSE                          # MIT License
 ├── README.md
 ├── SPEC.md                          # Core architectural specification
-├── plugin.yaml                      # Hermes v2 plugin manifest (OAuth, settings, 9 tools)
+├── plugin.yaml                      # Hermes v2 plugin manifest (OAuth, settings, 9 tools, 1 hook)
 ├── pyproject.toml
 ├── __init__.py                      # Plugin registration & progressive Pro mode check
+├── approval_hook.py                 # pre_tool_call hook: every chat APPROVE goes to Hermes's approval prompt
+├── file_guard.py                    # Applies Hermes's read denylist to local photo paths
 ├── config.py                        # Mode flags, fee defaults, approval token TTL
 ├── models.py                        # Pydantic v2 data models
 ├── db.py                            # 4-table SQLite store (seller_profile, items, pending_actions, item_events)
@@ -142,8 +144,9 @@ bae/
 ## Disclosure
 
 - **Network calls**: `bae` makes zero outbound network calls in sample-tour (`mock`) or offline CSV mode. When you connect an eBay account (`hermes auth add hermes-ebay-ops:ebay`), live API requests go exclusively through Hermes's OAuth broker (`credentialed_provider_request`) to `api.ebay.com`, `apiz.ebay.com`, and `apim.ebay.com`. Plugin code never reads `.env` files or raw OAuth tokens.
-- **Filesystem access**: Reads local item photo paths passed to `ebay_stage_listing` and migration CSV files passed to `ebay_import_migration_csv`. Writes only inside Hermes's profile-scoped `plugin_data_dir` (SQLite databases `state.db`, `tour.db`, and exported Seller Hub draft CSV files).
+- **Filesystem access**: Reads local item photo paths passed to `ebay_stage_listing` and migration CSV files passed to `ebay_import_migration_csv`. A local photo becomes a public listing image, so each path is checked against Hermes's read denylist (`agent.file_safety`: credential stores, `.env` files, internal caches) when it is staged and again right before upload; a blocked path is refused. Writes only inside Hermes's profile-scoped `plugin_data_dir` (SQLite databases `state.db`, `tour.db`, and exported Seller Hub draft CSV files).
 - **Execution & sessions**: Runs zero shell commands, subprocesses, or background daemons. Optional scripts in `scripts/` run only when explicitly triggered by you or a Hermes `--no-agent` schedule. Submitting a prompt in the Seller Desk `ask bae` dock sends your message to a visible Hermes conversation, and every live eBay write (`publish`, `revise`, `offer_reply`, `bulk_publish`, `bootstrap_policies`) requires an explicit approval token.
+- **Approvals**: The plugin registers one `pre_tool_call` hook. It escalates every `ebay_confirm_action(decision="APPROVE")` call from the agent to Hermes's own approval prompt, scoped to that one staged change, so a write runs only after a person approves it there or clicks **Approve** in the Seller Desk. With nobody present to answer (cron and other unattended runs), the call is blocked.
 
 ---
 

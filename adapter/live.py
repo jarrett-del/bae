@@ -22,6 +22,7 @@ from hermes_cli.plugin_provider_requests import (
 
 from ..cache_store import get_cached_category_aspects, put_cached_category_aspects
 from ..config import PluginSettings, get_settings
+from ..file_guard import local_read_block_error
 from ..models import (
     AccountCapabilities,
     ActiveListingSnapshot,
@@ -259,6 +260,11 @@ class LiveEbayAdapter:
                 uploaded_urls.append(raw_path)
                 continue
 
+            # Checked again here, at the only place local bytes are read, because the file
+            # behind a staged path can change between staging and approval.
+            blocked = local_read_block_error(raw_path)
+            if blocked:
+                raise EbayApiError(403, blocked, endpoint)
             path_obj = Path(raw_path)
             body_bytes, content_type = _encode_multipart_image(path_obj)
             resp = self._request(
