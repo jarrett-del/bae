@@ -132,6 +132,29 @@ _install_hermes_stubs_if_absent()
 _load_plugin_package()
 
 
+class _RepoRootIsNotATestPackage:
+    """Collect the repository root as a plain directory.
+
+    The root holds the plugin's own `__init__.py`, so pytest would treat it as a test package and
+    import it again under the checkout folder's name. That is a second copy of the plugin at best,
+    and it fails outright ("attempted relative import with no known parent package") when the
+    folder name is not a Python identifier, such as `bae-main` or `hermes-ebay-ops`. The plugin is
+    already loaded above as `hermes_ebay_ops`.
+    """
+
+    @staticmethod
+    def pytest_collect_directory(path: Path, parent: Any) -> Any:
+        if Path(path).resolve() == REPO_ROOT:
+            return pytest.Dir.from_parent(parent, path=path)
+        return None
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    # Registered as a standalone plugin: a conftest's own hooks are not consulted for directories
+    # above it, and the repository root is above tests/.
+    config.pluginmanager.register(_RepoRootIsNotATestPackage(), "bae-repo-root-is-not-a-test-package")
+
+
 @pytest.fixture(autouse=True)
 def isolated_plugin_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Isolate plugin_db SQLite storage and reset plugin settings per test."""
