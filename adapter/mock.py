@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any, Literal
 
@@ -25,6 +26,16 @@ from ..models import (
 )
 
 
+def _sample_ids(sku: str) -> tuple[str, str]:
+    """Stable per-SKU sample `(ebay_item_id, offer_id)`.
+
+    Sample mode builds a fresh adapter for every tool call, so a per-instance counter handed
+    every publish the same id and the second one hit the ledger's UNIQUE constraint.
+    """
+    suffix = f"{int(hashlib.sha256(sku.encode('utf-8')).hexdigest()[:12], 16) % 10**8:08d}"
+    return f"1105{suffix}", f"OFF-{suffix}"
+
+
 class MockEbayAdapter:
     """Offline EbayAdapter implementation recording mutating calls for gate tests."""
 
@@ -32,7 +43,6 @@ class MockEbayAdapter:
         self.persona: Literal["lite", "pro"] = persona
         self.write_calls: list[tuple[str, dict[str, Any]]] = []
         self._policies_opted_in: bool = persona == "pro"
-        self._next_item_seq: int = 2000
 
         self._active_listings: list[ActiveListingSnapshot] = [
             ActiveListingSnapshot(
@@ -310,10 +320,9 @@ class MockEbayAdapter:
 
     def publish_listing(self, payload: StagedListingPayload) -> PublishReceipt:
         self.write_calls.append(("publish_listing", payload.model_dump(mode="json")))
-        self._next_item_seq += 1
-        ebay_item_id = f"11059999{self._next_item_seq}"
+        ebay_item_id, sample_offer_id = _sample_ids(payload.sku)
         use_inventory = self._policies_opted_in or payload.route_mode == "INVENTORY_REST"
-        offer_id = f"OFF-{self._next_item_seq}" if use_inventory else None
+        offer_id = sample_offer_id if use_inventory else None
         route_used: Literal["INVENTORY_REST", "TRADING_XML_FALLBACK"] = (
             "INVENTORY_REST" if use_inventory else "TRADING_XML_FALLBACK"
         )
@@ -331,10 +340,9 @@ class MockEbayAdapter:
         )
         receipts: list[PublishReceipt] = []
         for payload in payloads[:25]:
-            self._next_item_seq += 1
-            ebay_item_id = f"11059999{self._next_item_seq}"
+            ebay_item_id, sample_offer_id = _sample_ids(payload.sku)
             use_inventory = self._policies_opted_in or payload.route_mode == "INVENTORY_REST"
-            offer_id = f"OFF-{self._next_item_seq}" if use_inventory else None
+            offer_id = sample_offer_id if use_inventory else None
             route_used: Literal["INVENTORY_REST", "TRADING_XML_FALLBACK"] = (
                 "INVENTORY_REST" if use_inventory else "TRADING_XML_FALLBACK"
             )
