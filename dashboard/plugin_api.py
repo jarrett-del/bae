@@ -586,9 +586,14 @@ def get_state() -> dict[str, Any]:
                         "detail": "Drop photos into chat, click + New Draft, or export a Windows CRLF Action=Draft CSV (75-day Seller Hub Drafts).",
                     },
                     {
-                        "done": settings.adapter_mode == "mock" or bool(tour),
-                        "title": "Connect your eBay seller account via Hermes OAuth",
-                        "detail": "Run `hermes auth add hermes-ebay-ops:ebay` — credentials stay inside Hermes's encrypted broker.",
+                        "done": settings.adapter_mode == "live" and not tour,
+                        "title": "Connect your eBay seller account",
+                        "detail": (
+                            "Live mode: requests go to eBay through Hermes's sign-in (`hermes auth add hermes-ebay-ops:ebay`)."
+                            if settings.adapter_mode == "live" and not tour
+                            else "Sample mode: nothing is sent to eBay. Connecting needs Hermes support for eBay's "
+                            "sign-in; the bae README says when it works."
+                        ),
                     },
                     {
                         "done": bool(profile["policies_opted_in"]),

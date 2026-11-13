@@ -15,7 +15,7 @@ from pydantic import ValidationError
 
 from ..adapter import EbayApiError, get_adapter
 from ..compliance import screen_listing_compliance
-from ..config import get_settings
+from ..config import NOT_CONNECTED_MESSAGE, get_settings
 from ..csv_drafts import generate_seller_hub_draft_csv
 from ..db import (
     ActionGateError,
@@ -541,7 +541,7 @@ def handle_stage_listing(
             {
                 "ok": False,
                 "error_code": "AUTH_REQUIRED",
-                "message": f"Run `hermes auth add hermes-ebay-ops ebay` to connect your eBay account ({exc}).",
+                "message": f"{NOT_CONNECTED_MESSAGE} ({exc})",
             }
         )
     except EbayApiError as exc:
@@ -791,7 +791,7 @@ def handle_audit_active_listing(
             {
                 "ok": False,
                 "error_code": "AUTH_REQUIRED",
-                "message": f"Run `hermes auth add hermes-ebay-ops ebay` to connect your eBay account ({exc}).",
+                "message": f"{NOT_CONNECTED_MESSAGE} ({exc})",
             }
         )
     except EbayApiError as exc:
@@ -883,7 +883,7 @@ def handle_check_comps(
             {
                 "ok": False,
                 "error_code": "AUTH_REQUIRED",
-                "message": f"Run `hermes auth add hermes-ebay-ops ebay` to connect your eBay account ({exc}).",
+                "message": f"{NOT_CONNECTED_MESSAGE} ({exc})",
             }
         )
     except EbayApiError as exc:

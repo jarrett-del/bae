@@ -17,7 +17,7 @@ from pydantic import ValidationError
 from ..adapter import EbayApiError, get_adapter
 from ..cache_store import list_haul_summaries
 from ..compliance import screen_listing_compliance
-from ..config import get_settings
+from ..config import NOT_CONNECTED_MESSAGE, get_settings
 from ..csv_drafts import parse_migration_csv
 from ..db import (
     append_item_event,
@@ -361,7 +361,7 @@ def handle_triage_offers(
             {
                 "ok": False,
                 "error_code": "AUTH_REQUIRED",
-                "message": f"Run `hermes auth add hermes-ebay-ops ebay` to connect your eBay account ({exc}).",
+                "message": f"{NOT_CONNECTED_MESSAGE} ({exc})",
             }
         )
     except EbayApiError as exc:
@@ -507,7 +507,7 @@ def handle_import_migration_csv(
             {
                 "ok": False,
                 "error_code": "AUTH_REQUIRED",
-                "message": f"Run `hermes auth add hermes-ebay-ops ebay` to connect your eBay account ({exc}).",
+                "message": f"{NOT_CONNECTED_MESSAGE} ({exc})",
             }
         )
     except EbayApiError as exc:
@@ -660,7 +660,7 @@ def handle_lookup_bin(
             {
                 "ok": False,
                 "error_code": "AUTH_REQUIRED",
-                "message": f"Run `hermes auth add hermes-ebay-ops ebay` to connect your eBay account ({exc}).",
+                "message": f"{NOT_CONNECTED_MESSAGE} ({exc})",
             }
         )
     except EbayApiError as exc:

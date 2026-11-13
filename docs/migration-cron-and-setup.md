@@ -11,6 +11,7 @@ Not every seller wants an agent publishing directly to eBay on day one. `bae` su
 ### Path A — Live Two-Step API Publish (`ebay_confirm_action`)
 - Stages a `PUBLISH_LISTING` token with SHA-256 verification.
 - On approval, publishes via **Sell Inventory REST** (opted-in Business Policy accounts) or **Trading XML `AddFixedPriceItem`** (casual C2C accounts).
+- Needs a connected eBay account in live mode. Hermes does not support eBay's sign-in yet (see the README's Quick Start), so use Path B until it does.
 
 ### Path B — Zero-Risk Seller Hub Draft CSV (`ebay_export_draft_csv` / `↓ CRLF Draft CSV`)
 - Generates an eBay File Exchange / Seller Hub Reports upload file (`*Action(SiteID=US|Country=US|Currency=USD|Version=1193|CC=UTF-8)` with `Action=Draft`).

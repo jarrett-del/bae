@@ -14,6 +14,14 @@ from pydantic import BaseModel, ConfigDict, Field
 PLUGIN_NAME = "hermes-ebay-ops"
 OAUTH_PROVIDER_ID = "ebay"
 
+CONNECT_COMMAND = "hermes auth add hermes-ebay-ops:ebay"
+SAMPLE_MODE_COMMAND = "hermes config set plugins.entries.hermes-ebay-ops.settings.adapter_mode mock"
+NOT_CONNECTED_MESSAGE = (
+    "bae is set to live eBay mode but is not signed in to eBay. "
+    f"Sign in with `{CONNECT_COMMAND}` (the bae README says whether your Hermes supports eBay sign-in yet), "
+    f"or switch back to sample data with `{SAMPLE_MODE_COMMAND}`."
+)
+
 
 class PluginSettings(BaseModel):
     """Validated non-secret operational settings for hermes-ebay-ops."""
@@ -23,7 +31,8 @@ class PluginSettings(BaseModel):
     plugin_name: str = PLUGIN_NAME
     oauth_provider_id: str = OAUTH_PROVIDER_ID
     mode: Literal["auto", "lite", "pro"] = "auto"
-    adapter_mode: Literal["live", "mock"] = "live"
+    # Sample data until the seller connects eBay and opts into live mode.
+    adapter_mode: Literal["live", "mock"] = "mock"
     mock_persona: Literal["lite", "pro"] = "lite"
     marketplace_id: str = "EBAY_US"
     default_estimated_fee_bps: int = Field(default=1360, ge=0, le=10000)

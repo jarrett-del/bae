@@ -31,14 +31,14 @@ oauth:
       - api.ebay.com
       - apiz.ebay.com
       - apim.ebay.com
+    # Only what the live adapter calls: base scope (Taxonomy, Metadata, Browse comps), Inventory and
+    # Media (listings, photos), Account (business policies), Fulfillment read-only (paid orders).
+    # Hermes refuses a sign-in unless eBay grants every scope listed here.
     scopes:
+      - https://api.ebay.com/oauth/api_scope
       - https://api.ebay.com/oauth/api_scope/sell.inventory
       - https://api.ebay.com/oauth/api_scope/sell.account
       - https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly
-      - https://api.ebay.com/oauth/api_scope/commerce.identity.readonly
-      - https://api.ebay.com/oauth/api_scope/commerce.message
-      - https://api.ebay.com/oauth/api_scope/sell.analytics.readonly
-      - https://api.ebay.com/oauth/api_scope/sell.finances
 config_schema:
   mode:
     type: str
@@ -51,12 +51,12 @@ config_schema:
     description: Progressive tool visibility mode (auto unlocks Pro tools once COGS or bin codes are entered)
   adapter_mode:
     type: str
-    default: live
+    default: mock
     choices:
       - live
       - mock
     label: eBay Adapter
-    description: Use live eBay APIs via Hermes OAuth or deterministic local mock data
+    description: Sample data (mock, the default) never contacts eBay. Switch to live after signing in with `hermes auth add hermes-ebay-ops:ebay`.
   mock_persona:
     type: str
     default: lite

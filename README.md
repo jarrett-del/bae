@@ -55,32 +55,62 @@ Keep a 350px summary open right next to Hermes chat to check active store totals
 
 ### 1. Install in Hermes
 
-Once listed in the Hermes Plugin Catalog:
+Once bae is listed in the Hermes Plugin Catalog:
 
 ```bash
 hermes plugins install bae
 ```
 
-Or install directly from GitHub / validate locally:
+Until then, install it straight from GitHub:
 
 ```bash
-git clone https://github.com/jarrett-del/bae.git
-hermes plugins validate ./bae
+hermes plugins install jarrett-del/bae
 ```
 
-Copy or symlink the folder into `~/.hermes/plugins/hermes-ebay-ops` if installing manually.
+Hermes asks before installing bae's two Python dependencies (`pydantic` and `defusedxml`) and asks whether to enable the plugin; say yes to both.
 
-### 2. Connect Your eBay Account (or Try the Built-In Sample Tours)
+### 2. Turn on the Seller Desk in Hermes Desktop
 
-`bae` never reads `.env` files or raw tokens in Python. Set `EBAY_PLUGIN_CLIENT_ID` and `EBAY_PLUGIN_CLIENT_SECRET` in your shell environment, then sign in through Hermes's encrypted OAuth broker:
+Hermes Desktop loads a plugin installed from the command line with its screens switched off. Open **Capabilities → Plugins**, find **bae** (`hermes-ebay-ops`) and turn on **Desktop**. A **bae** item appears in the sidebar, along with a side pane and a **bae: open eBay seller desk** command. A plugin installed from Desktop's own install dialog is switched on for you.
+
+No Desktop app? `hermes webapp` opens the same workspace in your browser.
+
+### 3. Try it on sample data
+
+bae starts in **sample mode**: it never contacts eBay, and every approval prompt says *Sample data only, nothing is sent to eBay*.
+
+- Open **bae** and click **Casual C2C Tour** or **Pro Store Tour** at the top of the screen. Tours run in a separate `tour.db`, so your own data stays untouched.
+- Or ask in chat: *"Draft a listing: Patagonia fleece, men's L, pit to pit 23 in."* Then say *"approve it"* to see Hermes's approval prompt.
+
+### 4. Get listings onto eBay today: Seller Hub Drafts
+
+You can use bae with your real store before live mode works. Draft listings with bae, then ask it to export them (or click **↓ CRLF Draft CSV** in the Seller Desk) and upload the file in Seller Hub under **Reports → Uploads**. The listings land in **Seller Hub → Listings → Drafts** for 75 days, where you add photos and publish.
+
+In sample mode the category and suggested price come from bae's sample data, so check both in Seller Hub before you publish.
+
+### 5. Connect your eBay account (waiting on Hermes)
+
+Live mode signs in through Hermes, and Hermes does not support eBay's sign-in yet: eBay wants your app's **RuName** in place of a callback address and the app keys sent as HTTP Basic auth. That support is requested in [hermes-agent#142687](https://github.com/NousResearch/hermes-agent/issues/142687). Until it ships, `hermes auth add hermes-ebay-ops:ebay` cannot finish, and this section will be updated when it does.
+
+You can get ready now:
+
+1. On [developer.ebay.com](https://developer.ebay.com), create an application keyset (start with **Sandbox**) and note its **App ID** (client ID) and **Cert ID** (client secret).
+2. Under **User Tokens**, create a **RuName** for the app.
+3. Add the keys to your Hermes profile's `.env` (`~/.hermes/.env` for the default profile). Hermes reads them from there, not from your shell:
+
+   ```text
+   EBAY_PLUGIN_CLIENT_ID=your-app-id
+   EBAY_PLUGIN_CLIENT_SECRET=your-cert-id
+   ```
+
+Once Hermes supports eBay sign-in, connect and switch bae to live mode:
 
 ```bash
 hermes auth add hermes-ebay-ops:ebay
+hermes config set plugins.entries.hermes-ebay-ops.settings.adapter_mode live
 ```
 
-> **Want to take it for a spin before connecting eBay?** Open **bae** (`/bae`) in Hermes and click **Casual C2C Tour** or **Pro Store Tour** at the top of the screen. Sample tours run in a separate `tour.db` file so your real store database stays untouched.
-
-### 3. Run Tests Locally
+### 6. Run Tests Locally
 
 ```bash
 python3 -m venv .venv
@@ -136,14 +166,14 @@ bae/
 ├── dashboard/                       # FastAPI backend routes + 350px Side Pane bundle
 ├── desktop/                         # Full-screen 4-tab Seller Desk UI (/bae)
 ├── docs/                            # Reference documentation & screenshots
-└── tests/                           # 29-test automated verification suite
+└── tests/                           # Offline automated test suite
 ```
 
 ---
 
 ## Disclosure
 
-- **Network calls**: `bae` makes zero outbound network calls in sample-tour (`mock`) or offline CSV mode. When you connect an eBay account (`hermes auth add hermes-ebay-ops:ebay`), live API requests go exclusively through Hermes's OAuth broker (`credentialed_provider_request`) to `api.ebay.com`, `apiz.ebay.com`, and `apim.ebay.com`. Plugin code never reads `.env` files or raw OAuth tokens.
+- **Network calls**: `bae` makes zero outbound network calls in sample mode (`mock`, the default), during sample tours, or in offline CSV mode. In live mode, after you connect an eBay account (`hermes auth add hermes-ebay-ops:ebay`), API requests go exclusively through Hermes's OAuth broker (`credentialed_provider_request`) to `api.ebay.com`, `apiz.ebay.com`, and `apim.ebay.com`. Plugin code never reads `.env` files or raw OAuth tokens.
 - **Filesystem access**: Reads local item photo paths passed to `ebay_stage_listing` and migration CSV files passed to `ebay_import_migration_csv`. A local photo becomes a public listing image, so each path is checked against Hermes's read denylist (`agent.file_safety`: credential stores, `.env` files, internal caches) when it is staged and again right before upload; a blocked path is refused. Writes only inside Hermes's profile-scoped `plugin_data_dir` (SQLite databases `state.db`, `tour.db`, and exported Seller Hub draft CSV files).
 - **Execution & sessions**: Runs zero shell commands, subprocesses, or background daemons. Optional scripts in `scripts/` run only when explicitly triggered by you or a Hermes `--no-agent` schedule. Submitting a prompt in the Seller Desk `ask bae` dock sends your message to a visible Hermes conversation, and every live eBay write (`publish`, `revise`, `offer_reply`, `bulk_publish`, `bootstrap_policies`) requires an explicit approval token.
 - **Approvals**: The plugin registers one `pre_tool_call` hook. It escalates every `ebay_confirm_action(decision="APPROVE")` call from the agent to Hermes's own approval prompt, scoped to that one staged change, so a write runs only after a person approves it there or clicks **Approve** in the Seller Desk. With nobody present to answer (cron and other unattended runs), the call is blocked.
