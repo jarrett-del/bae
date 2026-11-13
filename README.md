@@ -1,3 +1,5 @@
+![bae — From first photo to packed parcel](docs/images/banner.jpg)
+
 # bae
 
 **your eBay sidekick for [Hermes Agent](https://github.com/NousResearch/hermes-agent)** (`hermes-ebay-ops`)
@@ -51,14 +53,22 @@ Keep a 350px summary open right next to Hermes chat to check active store totals
 
 ## Quick Start
 
-### 1. Validate & Install in Hermes
+### 1. Install in Hermes
+
+Once listed in the Hermes Plugin Catalog:
+
+```bash
+hermes plugins install bae
+```
+
+Or install directly from GitHub / validate locally:
 
 ```bash
 git clone https://github.com/jarrett-del/bae.git
 hermes plugins validate ./bae
 ```
 
-Copy or symlink the folder into `~/.hermes/plugins/hermes-ebay-ops` (or install via your Hermes plugins directory).
+Copy or symlink the folder into `~/.hermes/plugins/hermes-ebay-ops` if installing manually.
 
 ### 2. Connect Your eBay Account (or Try the Built-In Sample Tours)
 
@@ -103,6 +113,7 @@ node --input-type=module --check < dashboard/dist/index.js
 
 ```text
 bae/
+├── LICENSE                          # MIT License
 ├── README.md
 ├── SPEC.md                          # Core architectural specification
 ├── plugin.yaml                      # Hermes v2 plugin manifest (OAuth, settings, 9 tools)
@@ -125,6 +136,14 @@ bae/
 ├── docs/                            # Reference documentation & screenshots
 └── tests/                           # 29-test automated verification suite
 ```
+
+---
+
+## Disclosure
+
+- **Network calls**: `bae` makes zero outbound network calls in sample-tour (`mock`) or offline CSV mode. When you connect an eBay account (`hermes auth add hermes-ebay-ops:ebay`), live API requests go exclusively through Hermes's OAuth broker (`credentialed_provider_request`) to `api.ebay.com`, `apiz.ebay.com`, and `apim.ebay.com`. Plugin code never reads `.env` files or raw OAuth tokens.
+- **Filesystem access**: Reads local item photo paths passed to `ebay_stage_listing` and migration CSV files passed to `ebay_import_migration_csv`. Writes only inside Hermes's profile-scoped `plugin_data_dir` (SQLite databases `state.db`, `tour.db`, and exported Seller Hub draft CSV files).
+- **Execution & sessions**: Runs zero shell commands, subprocesses, or background daemons. Optional scripts in `scripts/` run only when explicitly triggered by you or a Hermes `--no-agent` schedule. Submitting a prompt in the Seller Desk `ask bae` dock sends your message to a visible Hermes conversation, and every live eBay write (`publish`, `revise`, `offer_reply`, `bulk_publish`, `bootstrap_policies`) requires an explicit approval token.
 
 ---
 

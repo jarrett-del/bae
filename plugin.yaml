@@ -1,10 +1,12 @@
 name: hermes-ebay-ops
 version: "0.1.0"
 manifest_version: 2
+api_version: 1
 description: bae — your eBay sidekick for Hermes Agent, with listing QA, 2026 fee & shipping math, and an interactive seller desk
 author: jarrett-del
 license: MIT
 homepage: https://github.com/jarrett-del/bae
+requires_hermes: ">=0.23.0"
 tags:
   - ebay
   - commerce
@@ -12,8 +14,8 @@ tags:
   - inventory
   - listings
 python_dependencies:
-  - pydantic>=2.7.0
-  - defusedxml>=0.7.1
+  - pydantic>=2.7.0,<3.0.0
+  - defusedxml>=0.7.1,<1.0.0
 optional_env:
   - name: EBAY_PLUGIN_CLIENT_ID
     description: eBay Developer Application OAuth Client ID
